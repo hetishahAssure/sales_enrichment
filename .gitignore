@@ -1,0 +1,22 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Data outputs (contain enriched customer data — keep out of git)
+YPO_Qualified.csv
+*.out.csv
+
+# Windows mark-of-the-web metadata (from files downloaded/copied on Windows)
+*:Zone.Identifier
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
