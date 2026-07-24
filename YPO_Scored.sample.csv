@@ -1,0 +1,4 @@
+full_name,company_name,company_website,state,industry,icp_score,icp_tier,company_linkedin_url
+Jane Doe,Stripe,https://stripe.com,California,Fintech,82,Tier 1 - Hot,https://www.linkedin.com/company/stripe
+John Smith,Databricks,https://databricks.com,California,Data & AI,78,Tier 1 - Hot,https://www.linkedin.com/company/databricks
+Maria Garcia,Notion,https://notion.so,California,Productivity Software,65,Tier 2 - Warm,https://www.linkedin.com/company/notionhq

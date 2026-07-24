@@ -9,8 +9,10 @@ __pycache__/
 venv/
 env/
 
-# Data outputs (contain enriched customer data — keep out of git)
-YPO_Qualified.csv
+# Data files (contain prospect / customer data — keep out of git)
+# Ignore all YPO_*.csv but keep the committed *.sample.csv templates.
+YPO_*.csv
+!YPO_*.sample.csv
 *.out.csv
 
 # Windows mark-of-the-web metadata (from files downloaded/copied on Windows)
