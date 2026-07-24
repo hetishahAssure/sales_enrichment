@@ -1,40 +1,45 @@
 {
-  "name": "AssureSoft — Hiring Signal Enrichment (Google Sheets)",
+  "name": "AssureSoft — Hiring Signal Enrichment (CSV upload test)",
   "nodes": [
     {
-      "id": "s-start",
-      "name": "Start",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
+      "id": "u-form",
+      "name": "On Form Submit",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
       "position": [
         0,
         300
       ],
-      "parameters": {}
+      "parameters": {
+        "formTitle": "Hiring Enrichment — upload CSV",
+        "formDescription": "Upload your companies CSV to enrich it.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "file",
+              "fieldType": "file",
+              "requiredField": true,
+              "multipleFiles": false,
+              "acceptFileTypes": ".csv"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "webhookId": "hiring-enrich-form"
     },
     {
-      "id": "s-get",
-      "name": "Get Companies",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "id": "u-extract",
+      "name": "Extract From File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
       "position": [
         220,
         300
       ],
       "parameters": {
-        "operation": "read",
-        "documentId": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
+        "operation": "csv",
+        "binaryPropertyName": "file",
         "options": {}
       }
     },
@@ -231,53 +236,35 @@
       }
     },
     {
-      "id": "s-write",
-      "name": "Write Results",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "id": "u-tofile",
+      "name": "Convert to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
       "position": [
         1980,
         300
       ],
       "parameters": {
-        "operation": "update",
-        "documentId": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": [
-            "Account ID"
-          ],
-          "schema": []
-        },
-        "options": {}
+        "operation": "csv",
+        "options": {
+          "fileName": "YPO_Qualified_enriched.csv"
+        }
       }
     }
   ],
   "connections": {
-    "Start": {
+    "On Form Submit": {
       "main": [
         [
           {
-            "node": "Get Companies",
+            "node": "Extract From File",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get Companies": {
+    "Extract From File": {
       "main": [
         [
           {
@@ -358,7 +345,7 @@
       "main": [
         [
           {
-            "node": "Write Results",
+            "node": "Convert to File",
             "type": "main",
             "index": 0
           }

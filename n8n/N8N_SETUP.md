@@ -10,9 +10,40 @@ Start → Get Companies → Skip Enriched → Prepare Requests
 ```
 
 Files:
-- `hiring_enrichment.workflow.json` — import this into n8n
+- `hiring_enrichment.workflow.json` — **production** version (Google Sheets in/out)
+- `hiring_enrichment.upload.workflow.json` — **test** version: upload a CSV in the
+  browser, download the enriched CSV at the end. No Google credentials needed.
 - `prepare.js` / `merge.js` — the two Code nodes (already embedded in the JSON; kept here for editing)
-- `build_workflow.py` — regenerates the JSON after you edit the `.js` files
+- `build_workflow.py` — regenerates both JSON files after you edit the `.js` files
+
+---
+
+## Quick test without Google Sheets (recommended first)
+
+Use `hiring_enrichment.upload.workflow.json`. Flow:
+
+```
+On Form Submit (upload CSV) → Extract From File → Skip Enriched → Prepare
+   → Claude → JSearch → Theirstack → Apollo → Merge & Score → Convert to File
+```
+
+1. Create the **four Header Auth credentials** (Step 2 below). No Google cred needed.
+2. Import `hiring_enrichment.upload.workflow.json`.
+3. Attach each API credential to its HTTP node.
+4. Click **Test workflow** → n8n opens a form → **upload a CSV** (use a small 2–3
+   row file first; your `YPO_Qualified.csv` works, or trim it).
+5. When it finishes, open the execution and download the enriched CSV from the
+   **Convert to File** node's output panel.
+
+**Important — verify the upload binary name:** run the form once, click the
+**On Form Submit** node output, and check the binary property name of the uploaded
+file. If it isn't `file`, open **Extract From File** and set *Input Binary Field*
+to match. (n8n sometimes names it after the field label.)
+
+That's the whole loop with zero Google setup. Everything below is the production
+Google Sheets version.
+
+---
 
 The four HTTP nodes run one request per company row, each set to **Continue On
 Error** so a single failing source never kills the row. The Merge node ports the

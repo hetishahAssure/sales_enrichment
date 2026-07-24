@@ -197,4 +197,12 @@ function merge(results) {
 
 const merged = merge(results);
 
-return { json: { "Account ID": company["Account ID"] || "", ...merged } };
+// Keep the original row columns (minus internal _-prefixed helpers), then
+// overlay the enrichment columns. Works for both the Sheets update (auto-map
+// matches on "Account ID") and the CSV download in the test workflow.
+const clean = {};
+for (const [k, v] of Object.entries(company)) {
+  if (!k.startsWith("_")) clean[k] = v;
+}
+
+return { json: { ...clean, ...merged } };
