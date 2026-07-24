@@ -1,0 +1,234 @@
+{
+  "name": "AssureSoft — Crunchbase Enrichment (CSV upload test)",
+  "nodes": [
+    {
+      "id": "cb-form",
+      "name": "On Form Submit",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "formTitle": "Crunchbase Enrichment — upload CSV",
+        "formDescription": "Upload your companies CSV to enrich it with funding/investor data.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "file",
+              "fieldType": "file",
+              "requiredField": true,
+              "multipleFiles": false,
+              "acceptFileTypes": ".csv"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "webhookId": "crunchbase-enrich-form"
+    },
+    {
+      "id": "cb-extract",
+      "name": "Extract From File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "file",
+        "options": {}
+      }
+    },
+    {
+      "id": "cb-skip",
+      "name": "Skip CB Enriched",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-empty",
+              "leftValue": "={{ $json['last_funding_stage'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cb-prep",
+      "name": "Prepare Crunchbase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ── Prepare Crunchbase ────────────────────────────────────────────────────\n// Runs once per company row. Builds the Anthropic request body for the funding\n// / investor research call. Accepts scored-pipeline headers (company_name,\n// full_name, company_website, state) or Salesforce-style ones (Account Name,\n// Website, BillingState) as a fallback.\n// Code node mode: \"Run Once for Each Item\".\n\nconst MODEL = \"claude-haiku-4-5-20251001\";\n\nconst c = $input.item.json;\nconst company = String(c[\"company_name\"] || c[\"Account Name\"] || c[\"Name\"] || \"\").trim();\nconst name    = String(c[\"full_name\"] || c[\"Full Name\"] || \"\").trim();\nconst website = String(c[\"company_website\"] || c[\"Website\"] || \"\").trim();\nconst state   = String(c[\"state\"] || c[\"Billing State/Province\"] || c[\"BillingState\"] || \"\").trim();\n\nconst prompt = `You are a B2B research assistant. Search Crunchbase, LinkedIn, and the web for funding and investor data on this company.\n\nCOMPANY: ${company}\nPERSON:  ${name}\nWEBSITE: ${website || \"unknown\"}\nSTATE:   ${state || \"US\"}\n\nSearch for:\n1. Crunchbase page: crunchbase.com/organization/[company-slug]\n2. Recent news about funding rounds\n3. LinkedIn company page for employee count\n4. Any PE/VC investor mentions\n\nReturn ONLY a valid JSON object — no markdown, no explanation:\n{\n  \"founded_year\": \"<4-digit year or empty string>\",\n  \"total_funding\": \"<e.g. $4.2M | $50M | $1.2B | Undisclosed | Unknown>\",\n  \"last_funding_stage\": \"<Pre-Seed | Seed | Series A | Series B | Series C | Series D+ | PE Buyout | Growth Equity | Bootstrapped | Public | Unknown>\",\n  \"last_funding_amount\": \"<e.g. $8M | $45M | Undisclosed | Unknown>\",\n  \"last_funding_date\": \"<e.g. 2023-Q2 | 2024-01 | Unknown>\",\n  \"employee_count\": \"<e.g. 12 | 85 | 200-500 | 1200 | Unknown>\",\n  \"investors\": \"<comma-separated list of investor firm names — include PE firms, VC funds, angels. Empty string if none found>\",\n  \"investor_types\": \"<comma-separated types matching investors list order: PE | VC | Angel | CVC | Family Office | Unknown>\",\n  \"crunchbase_url\": \"<https://www.crunchbase.com/organization/[slug] or empty string>\",\n  \"company_description\": \"<one sentence description of what the company does>\",\n  \"is_pe_backed\": \"<Yes | No | Unknown>\",\n  \"is_vc_backed\": \"<Yes | No | Unknown>\"\n}\n\nRules:\n- Only include investors you confirmed via search — do NOT fabricate names\n- If a field cannot be confirmed, use empty string \"\" or \"Unknown\"\n- For investors, list all you can find — this is important`;\n\nconst cbBody = {\n  model: MODEL,\n  max_tokens: 1200,\n  tools: [{ type: \"web_search_20250305\", name: \"web_search\" }],\n  messages: [{ role: \"user\", content: prompt }],\n};\n\nreturn {\n  json: {\n    ...c,\n    _company: company,\n    _name: name,\n    _website: website,\n    _state: state,\n    _cbBody: cbBody,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "cb-claude",
+      "name": "Crunchbase Research",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Prepare Crunchbase').item.json._cbBody }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cb-merge",
+      "name": "Merge Crunchbase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ── Merge Crunchbase ──────────────────────────────────────────────────────\n// Parses the Claude funding/investor JSON and appends it as separate columns\n// onto the original company row. Does NOT touch any hiring columns.\n// Code node mode: \"Run Once for Each Item\".\n\nfunction nodeJson(name) {\n  try { return $(name).item.json; } catch (e) { return null; }\n}\n\nconst company = $(\"Prepare Crunchbase\").item.json;\n\n// Defaults mirror enrich_crunchbase.py (is_*_backed default to \"Unknown\").\nconst funding = {\n  founded_year: \"\",\n  total_funding: \"\",\n  last_funding_stage: \"\",\n  last_funding_amount: \"\",\n  last_funding_date: \"\",\n  employee_count: \"\",\n  investors: \"\",\n  investor_types: \"\",\n  crunchbase_url: \"\",\n  company_description: \"\",\n  is_pe_backed: \"Unknown\",\n  is_vc_backed: \"Unknown\",\n  _cb_status: \"error\",\n  _cb_error: \"\",\n};\n\ntry {\n  const resp = nodeJson(\"Crunchbase Research\");\n  if (resp && resp.error) {\n    funding._cb_error = String(resp.error.message || resp.error).slice(0, 200);\n  } else if (resp && Array.isArray(resp.content)) {\n    const text = resp.content\n      .filter((b) => b && b.type === \"text\" && b.text)\n      .map((b) => b.text)\n      .join(\" \");\n    const m = text.match(/\\{[\\s\\S]*?\\}/);\n    if (!m) throw new Error(\"No JSON in response\");\n    const d = JSON.parse(m[0]);\n    const clean = (k, def = \"\") => String(d[k] != null ? d[k] : def).trim();\n\n    funding.founded_year = clean(\"founded_year\");\n    funding.total_funding = clean(\"total_funding\");\n    funding.last_funding_stage = clean(\"last_funding_stage\");\n    funding.last_funding_amount = clean(\"last_funding_amount\");\n    funding.last_funding_date = clean(\"last_funding_date\");\n    funding.employee_count = clean(\"employee_count\");\n    funding.investors = clean(\"investors\");\n    funding.investor_types = clean(\"investor_types\");\n    funding.crunchbase_url = clean(\"crunchbase_url\");\n    funding.company_description = clean(\"company_description\");\n    funding.is_pe_backed = clean(\"is_pe_backed\", \"Unknown\");\n    funding.is_vc_backed = clean(\"is_vc_backed\", \"Unknown\");\n    funding._cb_status = \"done\";\n    funding._cb_error = \"\";\n  } else {\n    funding._cb_error = \"No response from Claude node\";\n  }\n} catch (e) {\n  funding._cb_error = String(e.message || e).slice(0, 200);\n}\n\n// Keep original row columns (minus internal _-prefixed helpers), then append funding.\nconst base = {};\nfor (const [k, v] of Object.entries(company)) {\n  if (!k.startsWith(\"_\")) base[k] = v;\n}\n\nreturn { json: { ...base, ...funding } };\n"
+      }
+    },
+    {
+      "id": "cb-tofile",
+      "name": "Convert to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "operation": "csv",
+        "options": {
+          "fileName": "YPO_crunchbase_enriched.csv"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On Form Submit": {
+      "main": [
+        [
+          {
+            "node": "Extract From File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract From File": {
+      "main": [
+        [
+          {
+            "node": "Skip CB Enriched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip CB Enriched": {
+      "main": [
+        [
+          {
+            "node": "Prepare Crunchbase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Crunchbase": {
+      "main": [
+        [
+          {
+            "node": "Crunchbase Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crunchbase Research": {
+      "main": [
+        [
+          {
+            "node": "Merge Crunchbase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Crunchbase": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
