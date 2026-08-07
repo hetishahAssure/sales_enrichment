@@ -1,0 +1,504 @@
+{
+  "name": "AssureSoft — Salesforce Account Enrichment (Crunchbase funding, weekly)",
+  "nodes": [
+    {
+      "id": "cb-schedule",
+      "name": "Every Sunday 20:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                0
+              ],
+              "triggerAtHour": 20,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cb-get",
+      "name": "Get Accounts",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "resource": "search",
+        "query": "SELECT Id, Name, Website, BillingState, Description, NumberOfEmployees, Careers_Page__c, Crunchbase_URL__c, Hiring_Score__c, Investors__c, Is_Hiring_Engineers__c, Is_PE_Backed__c, Is_VC_Backed__c, Latest_Funding_Amount__c, Latest_Funding_Date__c, LinkedIn__c, crunchbase__Latest_Round_Date__c, crunchbase__Latest_Round_Funding_Type__c, crunchbase__Latest_Round_Money_Raised_in_USD__c, crunchbase__Number_of_Employees_Crunchbase__c, crunchbase__Number_of_Investors__c, crunchbase__Total_Funding_USD__c FROM Account WHERE Crunchbase_URL__c = null AND Investors__c = null AND crunchbase__Total_Funding_USD__c = null AND crunchbase__Latest_Round_Funding_Type__c = null AND Latest_Funding_Date__c = null ORDER BY LastModifiedDate ASC LIMIT 500"
+      },
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "bypi7DAgDNwp2IZi",
+          "name": "Salesforce account"
+        }
+      }
+    },
+    {
+      "id": "cb-skip",
+      "name": "Skip Enriched",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-proxy-0",
+              "leftValue": "={{ $json.Crunchbase_URL__c }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-proxy-1",
+              "leftValue": "={{ $json.Investors__c }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-proxy-2",
+              "leftValue": "={{ $json.crunchbase__Total_Funding_USD__c }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-proxy-3",
+              "leftValue": "={{ $json.crunchbase__Latest_Round_Funding_Type__c }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-proxy-4",
+              "leftValue": "={{ $json.Latest_Funding_Date__c }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-legacy-0",
+              "leftValue": "={{ $json.Description }}",
+              "rightValue": "[Funding enriched",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cb-cap",
+      "name": "Cap Per Run",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "maxItems": 25
+      }
+    },
+    {
+      "id": "cb-prep",
+      "name": "Prepare Crunchbase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ── Prepare Crunchbase ────────────────────────────────────────────────────\n// Runs once per company row. Builds the Anthropic request body for the funding\n// / investor research call. Accepts scored-pipeline headers (company_name,\n// full_name, company_website, state) or Salesforce-style ones (Account Name,\n// Website, BillingState) as a fallback.\n// Code node mode: \"Run Once for Each Item\".\n\nconst MODEL = \"claude-haiku-4-5-20251001\";\n\nconst c = $input.item.json;\nconst company = String(c[\"company_name\"] || c[\"Account Name\"] || c[\"Name\"] || \"\").trim();\nconst name    = String(c[\"full_name\"] || c[\"Full Name\"] || \"\").trim();\nconst website = String(c[\"company_website\"] || c[\"Website\"] || \"\").trim();\nconst state   = String(c[\"state\"] || c[\"Billing State/Province\"] || c[\"BillingState\"] || \"\").trim();\n\nconst prompt = `You are a B2B research assistant. Search Crunchbase, LinkedIn, and the web for funding and investor data on this company.\n\nCOMPANY: ${company}\nPERSON:  ${name}\nWEBSITE: ${website || \"unknown\"}\nSTATE:   ${state || \"US\"}\n\nSearch for:\n1. Crunchbase page: crunchbase.com/organization/[company-slug]\n2. Recent news about funding rounds\n3. LinkedIn company page for employee count\n4. Any PE/VC investor mentions\n\nReturn ONLY a valid JSON object — no markdown, no explanation:\n{\n  \"founded_year\": \"<4-digit year or empty string>\",\n  \"total_funding\": \"<e.g. $4.2M | $50M | $1.2B | Undisclosed | Unknown>\",\n  \"last_funding_stage\": \"<Pre-Seed | Seed | Series A | Series B | Series C | Series D+ | PE Buyout | Growth Equity | Bootstrapped | Public | Unknown>\",\n  \"last_funding_amount\": \"<e.g. $8M | $45M | Undisclosed | Unknown>\",\n  \"last_funding_date\": \"<e.g. 2023-Q2 | 2024-01 | Unknown>\",\n  \"employee_count\": \"<e.g. 12 | 85 | 200-500 | 1200 | Unknown>\",\n  \"investors\": \"<comma-separated list of investor firm names — include PE firms, VC funds, angels. Empty string if none found>\",\n  \"investor_types\": \"<comma-separated types matching investors list order: PE | VC | Angel | CVC | Family Office | Unknown>\",\n  \"crunchbase_url\": \"<https://www.crunchbase.com/organization/[slug] or empty string>\",\n  \"company_description\": \"<one sentence description of what the company does>\",\n  \"is_pe_backed\": \"<Yes | No | Unknown>\",\n  \"is_vc_backed\": \"<Yes | No | Unknown>\"\n}\n\nRules:\n- Only include investors you confirmed via search — do NOT fabricate names\n- If a field cannot be confirmed, use empty string \"\" or \"Unknown\"\n- For investors, list all you can find — this is important`;\n\nconst cbBody = {\n  model: MODEL,\n  max_tokens: 1200,\n  tools: [{ type: \"web_search_20250305\", name: \"web_search\" }],\n  messages: [{ role: \"user\", content: prompt }],\n};\n\nreturn {\n  json: {\n    ...c,\n    _company: company,\n    _name: name,\n    _website: website,\n    _state: state,\n    _cbBody: cbBody,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "cb-claude",
+      "name": "Crunchbase Research",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Prepare Crunchbase').item.json._cbBody }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
+        },
+        "nodeCredentialType": "anthropicApi"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "89SoEYPbesTqn7ET",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "id": "cb-merge",
+      "name": "Merge Crunchbase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ── Merge Crunchbase ──────────────────────────────────────────────────────\n// Parses the Claude funding/investor JSON and appends it as separate columns\n// onto the original company row. Does NOT touch any hiring columns.\n// Code node mode: \"Run Once for Each Item\".\n\nfunction nodeJson(name) {\n  try { return $(name).item.json; } catch (e) { return null; }\n}\n\nconst company = $(\"Prepare Crunchbase\").item.json;\n\n// Defaults mirror enrich_crunchbase.py (is_*_backed default to \"Unknown\").\nconst funding = {\n  founded_year: \"\",\n  total_funding: \"\",\n  last_funding_stage: \"\",\n  last_funding_amount: \"\",\n  last_funding_date: \"\",\n  employee_count: \"\",\n  investors: \"\",\n  investor_types: \"\",\n  crunchbase_url: \"\",\n  company_description: \"\",\n  is_pe_backed: \"Unknown\",\n  is_vc_backed: \"Unknown\",\n  _cb_status: \"error\",\n  _cb_error: \"\",\n};\n\ntry {\n  const resp = nodeJson(\"Crunchbase Research\");\n  if (resp && resp.error) {\n    funding._cb_error = String(resp.error.message || resp.error).slice(0, 200);\n  } else if (resp && Array.isArray(resp.content)) {\n    const text = resp.content\n      .filter((b) => b && b.type === \"text\" && b.text)\n      .map((b) => b.text)\n      .join(\" \");\n    const m = text.match(/\\{[\\s\\S]*?\\}/);\n    if (!m) throw new Error(\"No JSON in response\");\n    const d = JSON.parse(m[0]);\n    const clean = (k, def = \"\") => String(d[k] != null ? d[k] : def).trim();\n\n    funding.founded_year = clean(\"founded_year\");\n    funding.total_funding = clean(\"total_funding\");\n    funding.last_funding_stage = clean(\"last_funding_stage\");\n    funding.last_funding_amount = clean(\"last_funding_amount\");\n    funding.last_funding_date = clean(\"last_funding_date\");\n    funding.employee_count = clean(\"employee_count\");\n    funding.investors = clean(\"investors\");\n    funding.investor_types = clean(\"investor_types\");\n    funding.crunchbase_url = clean(\"crunchbase_url\");\n    funding.company_description = clean(\"company_description\");\n    funding.is_pe_backed = clean(\"is_pe_backed\", \"Unknown\");\n    funding.is_vc_backed = clean(\"is_vc_backed\", \"Unknown\");\n    funding._cb_status = \"done\";\n    funding._cb_error = \"\";\n  } else {\n    funding._cb_error = \"No response from Claude node\";\n  }\n} catch (e) {\n  funding._cb_error = String(e.message || e).slice(0, 200);\n}\n\n// Keep original row columns (minus internal _-prefixed helpers), then append funding.\nconst base = {};\nfor (const [k, v] of Object.entries(company)) {\n  if (!k.startsWith(\"_\")) base[k] = v;\n}\n\nreturn { json: { ...base, ...funding } };\n"
+      }
+    },
+    {
+      "id": "cb-map",
+      "name": "Map to Salesforce",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ── Map to Salesforce (Crunchbase) ────────────────────────────────────────\n// Maps the funding enrichment output onto Account fields and diffs against\n// the values read from Salesforce, so the PATCH body contains nothing but the\n// fields that actually changed. Empty/unparseable enrichment values are\n// skipped — they never blank out an existing Salesforce value.\n//\n// Eligibility gate: field PATCHes only run when _cb_status === \"done\" AND at\n// least one confirmed field is present (crunchbase_url, parseable money/date,\n// investors, usable stage, or employee count). Failed/empty research never\n// writes the skip-proxy fields (Crunchbase_URL__c / Investors__c /\n// crunchbase__Total_Funding_USD__c / stage / Latest_Funding_Date__c).\n//\n// Crunchbase managed-package fields (typed, so values are converted):\n//\n//   crunchbase__Latest_Round_Funding_Type__c        ← last_funding_stage\n//   crunchbase__Latest_Round_Money_Raised_in_USD__c ← last_funding_amount\n//   crunchbase__Total_Funding_USD__c                ← total_funding\n//   crunchbase__Latest_Round_Date__c                ← last_funding_date\n//   crunchbase__Number_of_Employees_Crunchbase__c   ← employee_count\n//   crunchbase__Number_of_Investors__c              ← investors (count)\n//\n// Org custom fields:\n//\n//   Investors__c             ← investors\n//   Crunchbase_URL__c        ← crunchbase_url\n//   Latest_Funding_Amount__c ← last_funding_amount (parsed number)\n//   Latest_Funding_Date__c   ← last_funding_date (YYYY-MM-DD)\n//   Is_PE_Backed__c / Is_VC_Backed__c ← Yes/No/Unknown (or Checkbox)\n//\n// Skip proxy (SOQL / Skip Enriched): Account is treated as already enriched\n// when ANY of Crunchbase_URL__c, Investors__c, crunchbase__Total_Funding_USD__c,\n// crunchbase__Latest_Round_Funding_Type__c, Latest_Funding_Date__c is set.\n//\n// Description: enrichment blobs are NOT written. On an eligible run, any legacy\n// automation block (\"Funding:…[Funding enriched …]\") is stripped.\n// Company \"About\" is omitted (no Company_Description__c in this org).\n// Code node mode: \"Run Once for Each Item\".\n\n// Set true if Is_PE_Backed__c / Is_VC_Backed__c are Checkbox fields:\n// Yes → true, No → false, Unknown → skipped.\nconst CHECKBOX_PE_VC = false;\n\nconst j = $input.item.json;\nconst changes = {};\nconst str = (v) => String(v == null ? \"\" : v).trim();\n\nfunction setIfChanged(field, value) {\n  if (value == null || value === \"\") return;\n  const current = j[field];\n  if (typeof value === \"number\") {\n    const cur = current == null || current === \"\" ? null : Number(current);\n    if (cur !== value) changes[field] = value;\n  } else if (typeof value === \"boolean\") {\n    if (Boolean(current) !== value) changes[field] = value;\n  } else if (str(current) !== str(value)) {\n    changes[field] = str(value);\n  }\n}\n\nfunction yesNoToBool(v) {\n  const s = str(v).toLowerCase();\n  return s === \"yes\" ? true : s === \"no\" ? false : null;\n}\n\nfunction parseMoney(v) {\n  const m = str(v).replace(/,/g, \"\").match(/^\\$?\\s*(\\d+(?:\\.\\d+)?)\\s*([KMB])?$/i);\n  if (!m) return null;\n  const mult = { K: 1e3, M: 1e6, B: 1e9 }[(m[2] || \"\").toUpperCase()] || 1;\n  return Math.round(parseFloat(m[1]) * mult);\n}\n\nfunction parseDate(v) {\n  const s = str(v);\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;\n  if (/^\\d{4}-\\d{2}$/.test(s)) return `${s}-01`;\n  const q = s.match(/^(\\d{4})-Q([1-4])$/i);\n  if (q) return `${q[1]}-${String((parseInt(q[2], 10) - 1) * 3 + 1).padStart(2, \"0\")}-01`;\n  if (/^\\d{4}$/.test(s)) return `${s}-01-01`;\n  return null;\n}\n\nfunction parseEmployees(v) {\n  const ec = str(v).replace(/,/g, \"\");\n  if (/^\\d+$/.test(ec)) return parseInt(ec, 10);\n  const range = ec.match(/^(\\d+)\\s*[-–]\\s*(\\d+)$/);\n  if (range) return Math.round((parseInt(range[1], 10) + parseInt(range[2], 10)) / 2);\n  return null;\n}\n\nconst cbStatus = str(j._cb_status);\nconst cbError = str(j._cb_error);\nconst stage = str(j.last_funding_stage);\nconst investors = str(j.investors);\nconst crunchbaseUrl = str(j.crunchbase_url);\nconst totalMoney = parseMoney(j.total_funding);\nconst lastMoney = parseMoney(j.last_funding_amount);\nconst lastDate = parseDate(j.last_funding_date);\nconst employees = parseEmployees(j.employee_count);\nconst usableStage = Boolean(stage && stage !== \"Unknown\");\nconst total = str(j.total_funding);\n\nconst confirmedBits = [];\nif (crunchbaseUrl) confirmedBits.push(\"crunchbase_url\");\nif (totalMoney != null) confirmedBits.push(\"total_funding\");\nif (lastMoney != null) confirmedBits.push(\"last_funding_amount\");\nif (lastDate) confirmedBits.push(\"last_funding_date\");\nif (investors) confirmedBits.push(\"investors\");\nif (usableStage) confirmedBits.push(\"last_funding_stage\");\nif (employees !== null) confirmedBits.push(\"employee_count\");\n\nconst researchOk = cbStatus === \"done\";\nconst hasConfirmed = confirmedBits.length > 0;\nconst eligible = researchOk && hasConfirmed;\n\nlet skipReason = \"\";\nif (!researchOk) {\n  skipReason = cbError || `research status=${cbStatus || \"missing\"}`;\n} else if (!hasConfirmed) {\n  skipReason = \"no confirmed funding fields (url/money/date/investors/stage/employees)\";\n}\n\nif (!eligible) {\n  return {\n    json: {\n      Id: j.Id,\n      Name: j.Name,\n      Website: j.Website,\n      _changes: {},\n      _changedFields: \"\",\n      _hasChanges: false,\n      _eligible: false,\n      _skipReason: skipReason,\n      _cb_status: cbStatus || \"error\",\n      _cb_error: cbError,\n      _confirmedFields: \"\",\n      total_funding: total,\n      last_funding_stage: stage,\n      last_funding_amount: str(j.last_funding_amount),\n      investors,\n      crunchbase_url: crunchbaseUrl,\n    },\n  };\n}\n\n// ── Crunchbase managed-package fields ─────────────────────────────────────\nif (usableStage) setIfChanged(\"crunchbase__Latest_Round_Funding_Type__c\", stage);\nsetIfChanged(\"crunchbase__Latest_Round_Money_Raised_in_USD__c\", lastMoney);\nsetIfChanged(\"crunchbase__Total_Funding_USD__c\", totalMoney);\nsetIfChanged(\"crunchbase__Latest_Round_Date__c\", lastDate);\n\nconst investorCount = investors ? investors.split(\",\").filter((s) => s.trim()).length : null;\nif (investorCount) setIfChanged(\"crunchbase__Number_of_Investors__c\", investorCount);\n\n// ── Org custom fields (skip proxies among these) ──────────────────────────\nsetIfChanged(\"Investors__c\", investors);\nsetIfChanged(\"Crunchbase_URL__c\", crunchbaseUrl);\nsetIfChanged(\"Latest_Funding_Amount__c\", lastMoney);\nsetIfChanged(\"Latest_Funding_Date__c\", lastDate);\nif (CHECKBOX_PE_VC) {\n  setIfChanged(\"Is_PE_Backed__c\", yesNoToBool(j.is_pe_backed));\n  setIfChanged(\"Is_VC_Backed__c\", yesNoToBool(j.is_vc_backed));\n} else {\n  setIfChanged(\"Is_PE_Backed__c\", str(j.is_pe_backed));\n  setIfChanged(\"Is_VC_Backed__c\", str(j.is_vc_backed));\n}\n\nif (employees !== null) {\n  setIfChanged(\"NumberOfEmployees\", employees);\n  setIfChanged(\"crunchbase__Number_of_Employees_Crunchbase__c\", employees);\n}\n\n// ── Description cleanup only (no new enrichment text) ─────────────────────\nconst current = str(j.Description);\nconst cleaned = current\n  .replace(/(^|\\n)Funding:[\\s\\S]*?\\[Funding enriched \\d{4}-\\d{2}-\\d{2}\\]/g, \"$1\")\n  .replace(/\\n{3,}/g, \"\\n\\n\")\n  .trim();\nif (cleaned !== current) changes.Description = cleaned;\n\nreturn {\n  json: {\n    Id: j.Id,\n    Name: j.Name,\n    Website: j.Website,\n    _changes: changes,\n    _changedFields: Object.keys(changes).sort().join(\", \"),\n    _hasChanges: Object.keys(changes).length > 0,\n    _eligible: true,\n    _skipReason: \"\",\n    _cb_status: \"done\",\n    _cb_error: \"\",\n    _confirmedFields: confirmedBits.join(\", \"),\n    total_funding: total,\n    last_funding_stage: stage,\n    last_funding_amount: str(j.last_funding_amount),\n    investors,\n    crunchbase_url: crunchbaseUrl,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "cb-haschanges",
+      "name": "Has Changes",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-changed",
+              "leftValue": "={{ $json._hasChanges }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cb-update",
+      "name": "Update Account",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        300
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://assuresoft--testing.sandbox.my.salesforce.com/services/data/v59.0/sobjects/Account/{{ $json.Id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "salesforceOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json._changes }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "bypi7DAgDNwp2IZi",
+          "name": "Salesforce account"
+        }
+      }
+    },
+    {
+      "id": "cb-summary",
+      "name": "Build Run Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ── Build Run Summary Email ───────────────────────────────────────────────\n// Connected from Map to Salesforce (after the Has Changes → Update Account\n// branch in connection order) so PATCHes finish first under executionOrder v1.\n// Lists enriched companies, skips, and failed PATCH bodies.\n// Code node mode: \"Run Once for All Items\".\n\nfunction safeAll(name) {\n  try {\n    return $(name).all().map((i) => i.json);\n  } catch (e) {\n    return [];\n  }\n}\n\nconst mapped = safeAll(\"Map to Salesforce\");\nconst patched = safeAll(\"Update Account\");\n\nconst attempted = mapped.filter((m) => m._eligible && m._hasChanges);\nconst skipped = mapped.filter((m) => !m._eligible);\nconst noOp = mapped.filter((m) => m._eligible && !m._hasChanges);\n\n// Has Changes → Update Account preserves item order; pair by index.\nconst patchFailures = [];\nconst enrichedList = [];\nfor (let i = 0; i < attempted.length; i++) {\n  const m = attempted[i];\n  const p = patched[i];\n  if (p && p.error) {\n    const msg = String(\n      (p.error.message || p.error.description || p.error) || \"PATCH failed\"\n    ).slice(0, 300);\n    patchFailures.push({\n      name: m.Name || \"?\",\n      id: m.Id || \"\",\n      message: msg,\n      body: JSON.stringify(m._changes || {}).slice(0, 400),\n    });\n  } else {\n    enrichedList.push(m);\n  }\n}\n\nconst lines = [];\nlines.push(\"Hi team,\");\nlines.push(\"\");\nlines.push(\"Weekly Salesforce Account Crunchbase enrichment summary:\");\nlines.push(\"\");\nlines.push(`  • Researched:  ${mapped.length}`);\nlines.push(`  • Enriched:    ${enrichedList.length}`);\nlines.push(`  • Unchanged:   ${noOp.length} (eligible, Salesforce already matched)`);\nlines.push(`  • Skipped:     ${skipped.length} (ineligible — will retry next week)`);\nlines.push(`  • PATCH fail:  ${patchFailures.length}`);\nlines.push(\"\");\n\nif (enrichedList.length) {\n  lines.push(\"── Companies enriched ──\");\n  for (const m of enrichedList) {\n    const bits = [\n      m.last_funding_stage,\n      m.total_funding,\n      m.investors ? `investors: ${m.investors}` : \"\",\n    ]\n      .filter(Boolean)\n      .join(\" | \");\n    lines.push(\n      `- ${m.Name || \"?\"} (${m.Id || \"no Id\"})${bits ? ` — ${bits}` : \"\"}` +\n        (m.crunchbase_url ? ` — ${m.crunchbase_url}` : \"\")\n    );\n    if (m._changedFields) lines.push(`    fields: ${m._changedFields}`);\n  }\n  lines.push(\"\");\n}\n\nif (skipped.length) {\n  lines.push(\"── Skipped (marker NOT written; will retry) ──\");\n  for (const m of skipped) {\n    lines.push(\n      `- ${m.Name || \"?\"} (${m.Id || \"no Id\"}): ${m._skipReason || m._cb_error || \"ineligible\"}`\n    );\n  }\n  lines.push(\"\");\n}\n\nif (patchFailures.length) {\n  lines.push(\"── PATCH failures ──\");\n  for (const f of patchFailures) {\n    lines.push(`- ${f.name} (${f.id}): ${f.message}`);\n    if (f.body) lines.push(`    body: ${f.body}`);\n  }\n  lines.push(\"\");\n}\n\nif (noOp.length) {\n  lines.push(`── Eligible but unchanged (${noOp.length}) ──`);\n  for (const m of noOp) {\n    lines.push(`- ${m.Name || \"?\"} (${m.Id || \"no Id\"})`);\n  }\n  lines.push(\"\");\n}\n\nlines.push(\"— Automations (n8n)\");\n\nconst hasProblems = skipped.length > 0 || patchFailures.length > 0;\nconst subject = hasProblems\n  ? `⚠️ Crunchbase Account enrichment — ${enrichedList.length} enriched, ${skipped.length} skipped, ${patchFailures.length} PATCH fail`\n  : `✅ Crunchbase Account enrichment — ${enrichedList.length} companies enriched`;\n\nreturn [\n  {\n    json: {\n      subject,\n      body: lines.join(\"\\n\"),\n      hasAttachment: false,\n      outcome: hasProblems ? \"partial\" : \"success\",\n      enrichedCount: enrichedList.length,\n      skippedCount: skipped.length,\n      patchFailCount: patchFailures.length,\n      researchedCount: mapped.length,\n    },\n  },\n];\n"
+      }
+    },
+    {
+      "id": "cb-email",
+      "name": "Send an Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2200,
+        300
+      ],
+      "parameters": {
+        "fromEmail": "n8n.sales@assuresoft.com.bo",
+        "toEmail": "sales@assuresoft.com",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "yjdTjepkqEgUcibR",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "id": "cb-error",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        520
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "cb-failure",
+      "name": "Build Failure Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ── Build Failure Email ───────────────────────────────────────────────────\n// Fires only when the workflow HARD-fails, via the Error Trigger. Produces the\n// failure subject/body for the shared Send Email node. No attachment.\n// Code node mode: \"Run Once for All Items\".\n\nconst info = ($input.first() && $input.first().json) || {};\nconst wf =\n  (info.workflow && info.workflow.name) ||\n  \"Salesforce Account Enrichment (Crunchbase funding, weekly)\";\nconst exec = info.execution || {};\nconst errMsg =\n  (exec.error && (exec.error.message || exec.error)) || \"Unknown error\";\nconst lastNode = exec.lastNodeExecuted || \"unknown node\";\nconst url = exec.url || \"\";\n\nconst subject = `⚠️ Crunchbase Account enrichment FAILED — ${wf}`;\n\nconst parts = [\n  \"Hi team,\",\n  \"\",\n  \"The weekly Salesforce Crunchbase enrichment run did NOT complete.\",\n  \"Accounts researched in a partial run (if any) were not summarised by the success email.\",\n  \"\",\n  `  • Workflow:  ${wf}`,\n  `  • Failed at: ${lastNode}`,\n  `  • Error:     ${String(errMsg).slice(0, 300)}`,\n];\nif (url) parts.push(`  • Execution: ${url}`);\nparts.push(\"\");\nparts.push(\n  \"Check n8n Executions, Anthropic quota, and the Salesforce credential/host.\"\n);\nparts.push(\"Ineligible accounts are not marked enriched and will retry next week.\");\nparts.push(\"\");\nparts.push(\"— Automations (n8n)\");\n\nreturn [\n  {\n    json: {\n      subject,\n      body: parts.join(\"\\n\"),\n      hasAttachment: false,\n      outcome: \"failure\",\n    },\n  },\n];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Every Sunday 20:00": {
+      "main": [
+        [
+          {
+            "node": "Get Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Accounts": {
+      "main": [
+        [
+          {
+            "node": "Skip Enriched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Enriched": {
+      "main": [
+        [
+          {
+            "node": "Cap Per Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cap Per Run": {
+      "main": [
+        [
+          {
+            "node": "Prepare Crunchbase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Crunchbase": {
+      "main": [
+        [
+          {
+            "node": "Crunchbase Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crunchbase Research": {
+      "main": [
+        [
+          {
+            "node": "Merge Crunchbase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Crunchbase": {
+      "main": [
+        [
+          {
+            "node": "Map to Salesforce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map to Salesforce": {
+      "main": [
+        [
+          {
+            "node": "Has Changes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Changes": {
+      "main": [
+        [
+          {
+            "node": "Update Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Run Summary": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Failure Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Email": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

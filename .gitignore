@@ -9,11 +9,19 @@ __pycache__/
 venv/
 env/
 
-# Data files (contain prospect / customer data — keep out of git)
-# Ignore all YPO_*.csv but keep the committed *.sample.csv templates.
+# Prospect / customer data (keep sample templates only)
+data/*.csv
+!data/samples/
+!data/samples/**
+
+# Legacy root data paths (in case files are recreated at root)
 YPO_*.csv
 !YPO_*.sample.csv
 *.out.csv
+
+# Personal / scratch files
+*.docx
+Untitled-*.py
 
 # Windows mark-of-the-web metadata (from files downloaded/copied on Windows)
 *:Zone.Identifier

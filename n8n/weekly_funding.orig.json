@@ -1,0 +1,435 @@
+{
+  "name": "AssureSoft — Weekly Funding Discovery (Crunchbase → Salesforce → Gmail)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 21 * * 6"
+            }
+          ]
+        }
+      },
+      "id": "25b32916-3f08-4d0d-9306-088add2ab10a",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1760,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "email-to",
+              "name": "emailTo",
+              "value": "heti.shah@assuresoft.com",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d45ca717-262c-4fd0-84be-16d83c5eff09",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1536,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "account",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fields": "Id,Name,Website"
+        }
+      },
+      "id": "b4802d8f-864d-4cc9-a0f3-44c367dd91eb",
+      "name": "Get Salesforce Accounts",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        -1328,
+        128
+      ],
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "RbNNm31YDDBsgici",
+          "name": "Salesforce account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn [{ json: { _sfReady: true, _sfAccountCount: items.length } }];\n"
+      },
+      "id": "396a7ced-b828-47fd-9a98-1203c8c794a2",
+      "name": "Collect SF Accounts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Prepare Funding Discovery ─────────────────────────────────────────────\n// Builds the Anthropic web-search request for software/tech companies that\n// received funding in the last 7 days. Code node mode: \"Run Once for All Items\".\n\nconst MODEL = \"claude-haiku-4-5-20251001\";\n\nconst end = new Date();\nconst start = new Date();\nstart.setDate(end.getDate() - 7);\n\nconst fmt = (d) => d.toISOString().slice(0, 10);\nconst startDate = fmt(start);\nconst endDate = fmt(end);\n\nconst prompt = `You are a B2B research assistant for AssureSoft, a nearshore software engineering company.\n\nFind software / technology companies that announced or closed a funding round between ${startDate} and ${endDate} (inclusive).\n\nSearch Crunchbase, TechCrunch, LinkedIn, and the web for recent funding news.\n\nFilters (ALL required):\n1. Funding announced or closed in the last 7 days (${startDate} to ${endDate})\n2. Industry is software / tech (SaaS, software products, developer tools, AI/ML platforms, fintech software, cybersecurity, cloud/infra software, data platforms, etc.). Exclude pure biotech hardware, restaurants, retail stores, real estate agencies, and non-software industrials.\n\nReturn ONLY a valid JSON array — no markdown, no explanation. Each element:\n{\n  \"company_name\": \"<legal or common company name>\",\n  \"website\": \"<https://... or empty string>\",\n  \"company_description\": \"<one sentence what the company does>\",\n  \"industry\": \"<e.g. Software | SaaS | Artificial Intelligence | Cybersecurity | FinTech | Developer Tools>\",\n  \"employee_count\": \"<integer string or empty, e.g. 45>\",\n  \"billing_city\": \"<city or empty>\",\n  \"billing_state\": \"<state/province or empty>\",\n  \"billing_country\": \"<country or empty>\",\n  \"funding_stage\": \"<Pre-Seed | Seed | Series A | Series B | Series C | Series D+ | Growth Equity | PE Buyout | Debt | Other | Unknown>\",\n  \"funding_amount\": \"<e.g. $12M | Undisclosed | Unknown>\",\n  \"funding_date\": \"<YYYY-MM-DD or YYYY-MM if day unknown>\",\n  \"investors\": \"<comma-separated investor names, or empty>\",\n  \"crunchbase_url\": \"<https://www.crunchbase.com/organization/[slug] or empty>\"\n}\n\nRules:\n- Only include companies you can corroborate via search — do NOT fabricate\n- Prefer 15–40 high-confidence matches over a long speculative list\n- If employee_count is a range, use the midpoint as an integer string\n- website should be the company homepage when known\n- If nothing qualifies, return []`;\n\nconst _claudeBody = {\n  model: MODEL,\n  max_tokens: 8000,\n  tools: [{ type: \"web_search_20250305\", name: \"web_search\" }],\n  messages: [{ role: \"user\", content: prompt }],\n};\n\nreturn [{\n  json: {\n    _startDate: startDate,\n    _endDate: endDate,\n    _claudeBody,\n  },\n}];\n"
+      },
+      "id": "1eb7c185-68f2-420c-b062-bd4acf6dbb98",
+      "name": "Prepare Funding Discovery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Prepare Funding Discovery').item.json._claudeBody }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "edd372bb-932c-4196-bcf2-ff4006294284",
+      "name": "Claude Funding Discovery",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        128
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bGoUYUUbPuxVqFKQ",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Parse Funding Discovery ───────────────────────────────────────────────\n// Parses Claude's JSON array into one n8n item per company, shaped for\n// Salesforce Account create + email digest.\n// Code node mode: \"Run Once for All Items\".\n\nfunction nodeJson(name) {\n  try { return $(name).first().json; } catch (e) { return null; }\n}\n\nfunction clean(v, def = \"\") {\n  return String(v != null ? v : def).trim();\n}\n\nfunction parseEmployeeCount(raw) {\n  const s = clean(raw);\n  if (!s || /^unknown$/i.test(s)) return null;\n  const range = s.match(/(\\d+)\\s*[-–]\\s*(\\d+)/);\n  if (range) return Math.round((Number(range[1]) + Number(range[2])) / 2);\n  const n = s.replace(/,/g, \"\").match(/\\d+/);\n  return n ? Number(n[0]) : null;\n}\n\nfunction buildDescription(d) {\n  const lines = [];\n  const desc = clean(d.company_description);\n  if (desc) lines.push(desc);\n  lines.push(\"\");\n  lines.push(`Funding: ${clean(d.funding_stage, \"Unknown\")} | ${clean(d.funding_amount, \"Unknown\")} | ${clean(d.funding_date, \"Unknown\")}`);\n  const investors = clean(d.investors);\n  if (investors) lines.push(`Investors: ${investors}`);\n  const cb = clean(d.crunchbase_url);\n  if (cb) lines.push(`Crunchbase: ${cb}`);\n  const team = clean(d.employee_count);\n  if (team) lines.push(`Team size: ${team}`);\n  lines.push(\"Source: Weekly Crunchbase funding discovery (n8n)\");\n  return lines.join(\"\\n\").trim();\n}\n\nconst meta = nodeJson(\"Prepare Funding Discovery\") || {};\nconst startDate = meta._startDate || \"\";\nconst endDate = meta._endDate || \"\";\n\nlet companies = [];\nlet parseError = \"\";\n\ntry {\n  const resp = nodeJson(\"Claude Funding Discovery\");\n  if (!resp) {\n    parseError = \"No response from Claude Funding Discovery\";\n  } else if (resp.error) {\n    parseError = String(resp.error.message || resp.error).slice(0, 300);\n  } else if (Array.isArray(resp.content)) {\n    const text = resp.content\n      .filter((b) => b && b.type === \"text\" && b.text)\n      .map((b) => b.text)\n      .join(\" \");\n    const m = text.match(/\\[[\\s\\S]*\\]/);\n    if (!m) throw new Error(\"No JSON array in Claude response\");\n    const parsed = JSON.parse(m[0]);\n    if (!Array.isArray(parsed)) throw new Error(\"Parsed JSON is not an array\");\n    companies = parsed;\n  } else {\n    parseError = \"Unexpected Claude response shape\";\n  }\n} catch (e) {\n  parseError = String(e.message || e).slice(0, 300);\n}\n\nif (!companies.length) {\n  return [{\n    json: {\n      _empty: true,\n      _parseError: parseError,\n      _startDate: startDate,\n      _endDate: endDate,\n      company_name: \"\",\n      Name: \"\",\n      Website: \"\",\n      Description: \"\",\n      Industry: \"\",\n      NumberOfEmployees: null,\n      BillingCity: \"\",\n      BillingState: \"\",\n      BillingCountry: \"\",\n      funding_stage: \"\",\n      funding_amount: \"\",\n      funding_date: \"\",\n      investors: \"\",\n      crunchbase_url: \"\",\n      employee_count: \"\",\n    },\n  }];\n}\n\nreturn companies.map((d) => {\n  const name = clean(d.company_name);\n  const website = clean(d.website);\n  const employees = parseEmployeeCount(d.employee_count);\n  return {\n    json: {\n      _empty: false,\n      _parseError: \"\",\n      _startDate: startDate,\n      _endDate: endDate,\n      company_name: name,\n      Name: name,\n      Website: website,\n      Description: buildDescription(d),\n      Industry: clean(d.industry, \"Software\"),\n      NumberOfEmployees: employees,\n      BillingCity: clean(d.billing_city),\n      BillingState: clean(d.billing_state),\n      BillingCountry: clean(d.billing_country),\n      funding_stage: clean(d.funding_stage),\n      funding_amount: clean(d.funding_amount),\n      funding_date: clean(d.funding_date),\n      investors: clean(d.investors),\n      crunchbase_url: clean(d.crunchbase_url),\n      employee_count: clean(d.employee_count),\n      company_description: clean(d.company_description),\n    },\n  };\n});\n"
+      },
+      "id": "5bd28e2d-9c78-4f67-a937-5898ecd47726",
+      "name": "Parse Funding Companies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Dedupe vs Salesforce ──────────────────────────────────────────────────\n// Marks each discovered company as new or existing using Account Name OR\n// Website domain (normalized). Code node mode: \"Run Once for All Items\".\n\nfunction normalizeName(n) {\n  return String(n || \"\")\n    .toLowerCase()\n    .replace(/&/g, \"and\")\n    .replace(/[^a-z0-9]/g, \"\");\n}\n\nfunction normalizeDomain(url) {\n  let s = String(url || \"\").trim().toLowerCase();\n  if (!s) return \"\";\n  s = s.replace(/^https?:\\/\\//, \"\").replace(/^www\\./, \"\");\n  return s.split(\"/\")[0].split(\"?\")[0];\n}\n\nfunction sfAccounts() {\n  try {\n    return $(\"Get Salesforce Accounts\").all().map((i) => i.json);\n  } catch (e) {\n    return [];\n  }\n}\n\nconst accounts = sfAccounts();\nconst items = $input.all();\n\nreturn items.map((item) => {\n  const c = item.json;\n  if (c._empty || !c.Name) {\n    return {\n      json: {\n        ...c,\n        _isNew: false,\n        _skipCreate: true,\n        _matchReason: \"empty\",\n      },\n    };\n  }\n\n  const name = normalizeName(c.Name);\n  const domain = normalizeDomain(c.Website);\n\n  let matchReason = \"\";\n  let matchedId = \"\";\n\n  for (const sf of accounts) {\n    const sfName = normalizeName(sf.Name);\n    const sfDomain = normalizeDomain(sf.Website);\n    const nameMatch = Boolean(name && sfName && name === sfName);\n    const domainMatch = Boolean(domain && sfDomain && domain === sfDomain);\n    if (nameMatch || domainMatch) {\n      matchReason = nameMatch && domainMatch\n        ? \"name+website\"\n        : nameMatch\n          ? \"name\"\n          : \"website\";\n      matchedId = sf.Id || sf.id || \"\";\n      break;\n    }\n  }\n\n  const isNew = !matchReason;\n  return {\n    json: {\n      ...c,\n      _isNew: isNew,\n      _skipCreate: !isNew,\n      _matchReason: matchReason || \"none\",\n      _matchedAccountId: matchedId,\n      _sfAccountCount: accounts.length,\n    },\n  };\n});\n"
+      },
+      "id": "6cc112cf-bb31-4394-bbd9-d36324a07a71",
+      "name": "Dedupe vs Salesforce",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-new",
+              "leftValue": "={{ $json._isNew }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ae477c6c-7500-4f16-ab08-377734b0ccd4",
+      "name": "Only New Accounts",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "account",
+        "name": "={{ $json.Name }}",
+        "additionalFields": {
+          "description": "={{ $json.Description }}",
+          "industry": "={{ $json.Industry }}",
+          "numberOfEmployees": "={{ $json.NumberOfEmployees }}",
+          "website": "={{ $json.Website }}"
+        }
+      },
+      "id": "f2133d6b-b8aa-496c-968b-2b38ea7609b5",
+      "name": "Create Salesforce Account",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "RbNNm31YDDBsgici",
+          "name": "Salesforce account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Build Funding Digest (CSV rows) ───────────────────────────────────────\n// Emits one clean row per discovered company for Convert to File.\n// Email subject/body are assembled later in Finalize Email (keeps CSV clean).\n// Code node mode: \"Run Once for All Items\".\n\nconst all = $input.all().map((i) => i.json);\nconst companies = all.filter((c) => !c._empty && c.Name);\n\nif (!companies.length) {\n  return [{\n    json: {\n      company_name: \"\",\n      website: \"\",\n      industry: \"\",\n      employee_count: \"\",\n      billing_city: \"\",\n      billing_state: \"\",\n      billing_country: \"\",\n      funding_stage: \"\",\n      funding_amount: \"\",\n      funding_date: \"\",\n      investors: \"\",\n      crunchbase_url: \"\",\n      company_description: \"\",\n      salesforce_status: \"none\",\n      match_reason: \"\",\n    },\n  }];\n}\n\nreturn companies.map((c) => ({\n  json: {\n    company_name: c.Name,\n    website: c.Website,\n    industry: c.Industry,\n    employee_count: c.employee_count || c.NumberOfEmployees || \"\",\n    billing_city: c.BillingCity,\n    billing_state: c.BillingState,\n    billing_country: c.BillingCountry,\n    funding_stage: c.funding_stage,\n    funding_amount: c.funding_amount,\n    funding_date: c.funding_date,\n    investors: c.investors,\n    crunchbase_url: c.crunchbase_url,\n    company_description: c.company_description || \"\",\n    salesforce_status: c._isNew ? \"new\" : \"existing\",\n    match_reason: c._matchReason || \"\",\n  },\n}));\n"
+      },
+      "id": "5ba04e73-06e8-49d1-a62b-713454700433",
+      "name": "Build Funding Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "weekly_funding_digest.csv"
+        }
+      },
+      "id": "8e12a1a3-b07c-4895-a903-1518464a66b0",
+      "name": "Convert Digest to CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Finalize Email ────────────────────────────────────────────────────────\n// Runs after Convert to File. Keeps the CSV binary and adds Gmail fields\n// (to / subject / body) from Config + Dedupe results.\n// Code node mode: \"Run Once for All Items\".\n\nfunction config() {\n  try { return $(\"Config\").first().json; } catch (e) { return {}; }\n}\n\nconst cfg = config();\nconst emailTo = String(cfg.emailTo || \"heti.shah@assuresoft.com\").trim();\n\nlet deduped = [];\ntry {\n  deduped = $(\"Dedupe vs Salesforce\").all().map((i) => i.json);\n} catch (e) {\n  deduped = [];\n}\n\nconst companies = deduped.filter((c) => !c._empty && c.Name);\nconst startDate = (companies[0] && companies[0]._startDate) || (deduped[0] && deduped[0]._startDate) || \"\";\nconst endDate = (companies[0] && companies[0]._endDate) || (deduped[0] && deduped[0]._endDate) || \"\";\nconst parseError = (deduped[0] && deduped[0]._parseError) || \"\";\nconst newOnes = companies.filter((c) => c._isNew);\nconst existing = companies.filter((c) => !c._isNew);\n\nconst lines = [];\nlines.push(`Weekly software/tech funding digest (${startDate} → ${endDate})`);\nlines.push(\"\");\nlines.push(`Total found: ${companies.length}`);\nlines.push(`New (created in Salesforce when not already present): ${newOnes.length}`);\nlines.push(`Already in Salesforce: ${existing.length}`);\nif (parseError) {\n  lines.push(\"\");\n  lines.push(`Parser note: ${parseError}`);\n}\nlines.push(\"\");\nlines.push(\"── All companies ──\");\nfor (const c of companies) {\n  const flag = c._isNew ? \"NEW\" : \"EXISTS\";\n  lines.push(\n    `- [${flag}] ${c.Name} | ${c.funding_stage || \"?\"} ${c.funding_amount || \"\"} | ${c.Website || \"no website\"}`\n  );\n}\nlines.push(\"\");\nlines.push(\"CSV attachment includes the full list with funding + Salesforce match status.\");\n\nconst subject = companies.length\n  ? `Weekly funding digest ${startDate}–${endDate} (${companies.length} companies, ${newOnes.length} new)`\n  : `Weekly funding digest ${startDate}–${endDate} (no matches)`;\n\nconst body = companies.length\n  ? lines.join(\"\\n\")\n  : `No software/tech funding companies found for ${startDate} → ${endDate}.\\n${parseError ? `Parser note: ${parseError}` : \"\"}`.trim();\n\nconst input = $input.first();\nreturn [{\n  json: {\n    emailTo,\n    subject,\n    body,\n    startDate,\n    endDate,\n    companyCount: companies.length,\n    newCount: newOnes.length,\n  },\n  binary: input.binary || {},\n}];\n"
+      },
+      "id": "7a801f23-9794-4c16-a66f-7526cae6446c",
+      "name": "Finalize Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n.sales@assuresoft.com.bo",
+        "toEmail": "sales@assuresoft.com",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        608,
+        240
+      ],
+      "id": "0a08c50b-4b0b-4c8c-8ed7-37ca2b0a2d52",
+      "name": "Send an Email",
+      "webhookId": "859050e0-d2eb-4a15-80bc-46a2231f1210",
+      "credentials": {
+        "smtp": {
+          "id": "qjDC2Gx1YxLQCYli",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Salesforce Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Salesforce Accounts": {
+      "main": [
+        [
+          {
+            "node": "Collect SF Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect SF Accounts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Funding Discovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Funding Discovery": {
+      "main": [
+        [
+          {
+            "node": "Claude Funding Discovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Funding Discovery": {
+      "main": [
+        [
+          {
+            "node": "Parse Funding Companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Funding Companies": {
+      "main": [
+        [
+          {
+            "node": "Dedupe vs Salesforce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe vs Salesforce": {
+      "main": [
+        [
+          {
+            "node": "Only New Accounts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Funding Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only New Accounts": {
+      "main": [
+        [
+          {
+            "node": "Create Salesforce Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Funding Digest": {
+      "main": [
+        [
+          {
+            "node": "Convert Digest to CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Digest to CSV": {
+      "main": [
+        [
+          {
+            "node": "Finalize Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Email": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6e3d8e48-6c92-4033-bec8-6e33be09087f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "53410f992728536d89497cd6e1eb1dc1708797872e8a1e085de8fcd82b7d91ab"
+  },
+  "nodeGroups": [],
+  "id": "4xLAKgs21NtpQLRQ",
+  "tags": []
+}

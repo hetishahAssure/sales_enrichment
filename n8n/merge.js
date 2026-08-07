@@ -150,6 +150,9 @@ function merge(results) {
       is_hiring_engineers: "Unknown", open_roles: "", open_roles_count: 0, hiring_score: 0,
       hiring_urgency: "Unknown", hiring_source: "None", careers_page_url: "", linkedin_jobs_url: "",
       indeed_jobs_url: "", most_recent_posting: "", tech_stack_hints: "", hiring_notes: "", data_confidence: "Low",
+      _hiring_status: "error",
+      _hiring_error: "no hiring sources returned usable data",
+      _sources_ok: 0,
     };
   }
   const allRoles = new Set(), sources = [], allTech = new Set(), notes = [];
@@ -192,6 +195,9 @@ function merge(results) {
     tech_stack_hints: [...allTech].sort().slice(0, 12).join(", "),
     hiring_notes: notes.join(" | ").slice(0, 300),
     data_confidence: confidence,
+    _hiring_status: "done",
+    _hiring_error: "",
+    _sources_ok: n,
   };
 }
 

@@ -30,8 +30,8 @@ New columns added:
 
 Usage:
     python3 enrich_hiring.py
-    python3 enrich_hiring.py --input   YPO_Qualified.csv
-    python3 enrich_hiring.py --output  YPO_Qualified.csv
+    python3 enrich_hiring.py --input   data/YPO_Qualified.csv
+    python3 enrich_hiring.py --output  data/YPO_Qualified.csv
     python3 enrich_hiring.py --limit   50
     python3 enrich_hiring.py --tier    1
     python3 enrich_hiring.py --min-delay 2.0 --max-delay 7.0
@@ -151,8 +151,8 @@ SOURCES = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── GENERAL CONFIG ────────────────────────────────────────────────────────────
-DEFAULT_INPUT  = "YPO_Qualified.csv"
-DEFAULT_OUTPUT = "YPO_Qualified.csv"
+DEFAULT_INPUT  = "data/YPO_Qualified.csv"
+DEFAULT_OUTPUT = "data/YPO_Qualified.csv"
 MIN_DELAY      = 2.0
 MAX_DELAY      = 7.0
 MODEL          = "claude-haiku-4-5-20251001"

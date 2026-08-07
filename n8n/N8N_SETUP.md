@@ -31,7 +31,7 @@ On Form Submit (upload CSV) → Extract From File → Skip Enriched → Prepare
 2. Import `hiring_enrichment.upload.workflow.json`.
 3. Attach each API credential to its HTTP node.
 4. Click **Test workflow** → n8n opens a form → **upload a CSV** (use a small 2–3
-   row file first; your `YPO_Qualified.csv` works, or trim it).
+   row file first; your `data/YPO_Qualified.csv` works, or trim it).
 5. When it finishes, open the execution and download the enriched CSV from the
    **Convert to File** node's output panel.
 

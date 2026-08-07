@@ -1,0 +1,467 @@
+{
+  "name": "AssureSoft — Weekly Funding Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 21 * * 6"
+            }
+          ]
+        }
+      },
+      "id": "04a7ee12-15c7-4bfb-af4a-4416dd75901c",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3712,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "account",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fields": "Id,Name,Website"
+        }
+      },
+      "id": "3b0cfe94-307a-4a5f-8e2d-10b8385ce34e",
+      "name": "Get Salesforce Accounts",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        -3280,
+        96
+      ],
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "bypi7DAgDNwp2IZi",
+          "name": "Salesforce account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count ONLY real Salesforce Account rows.\n// With onError: continueRegularOutput, a failed fetch emits a single error\n// item (e.g. { error: ... }) instead of zero items. Counting raw items would\n// make _sfAccountCount = 1 and bypass the empty-Salesforce guard downstream,\n// so we count only items that have a truthy Id and no error key.\nconst valid = $input.all().filter((i) => {\n  const j = (i && i.json) || {};\n  return !j.error && Boolean(j.Id || j.id);\n});\nreturn [{ json: { _sfReady: true, _sfAccountCount: valid.length } }];\n"
+      },
+      "id": "f58f7300-7298-4f2b-ba2e-68e0506fbf03",
+      "name": "Collect SF Accounts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3056,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Prepare Funding Discovery ─────────────────────────────────────────────\n// Builds the Anthropic web-search request for software/tech companies that\n// received funding in the last 7 days. Code node mode: \"Run Once for All Items\".\n\nconst MODEL = \"claude-haiku-4-5-20251001\";\n\nconst end = new Date();\nconst start = new Date();\nstart.setDate(end.getDate() - 7);\n\nconst fmt = (d) => d.toISOString().slice(0, 10);\nconst startDate = fmt(start);\nconst endDate = fmt(end);\n\nconst prompt = `You are a B2B research assistant for AssureSoft, a nearshore software engineering company.\n\nFind software / technology companies that announced or closed a funding round between ${startDate} and ${endDate} (inclusive).\n\nSearch Crunchbase, TechCrunch, LinkedIn, and the web for recent funding news.\n\nFilters (ALL required):\n1. Funding announced or closed in the last 7 days (${startDate} to ${endDate})\n2. Industry is software / tech (SaaS, software products, developer tools, AI/ML platforms, fintech software, cybersecurity, cloud/infra software, data platforms, etc.). Exclude pure biotech hardware, restaurants, retail stores, real estate agencies, and non-software industrials.\n\nReturn ONLY a valid JSON array — no markdown, no explanation. Each element:\n{\n  \"company_name\": \"<legal or common company name>\",\n  \"website\": \"<https://... or empty string>\",\n  \"company_description\": \"<one sentence what the company does>\",\n  \"industry\": \"<e.g. Software | SaaS | Artificial Intelligence | Cybersecurity | FinTech | Developer Tools>\",\n  \"employee_count\": \"<integer string or empty, e.g. 45>\",\n  \"billing_city\": \"<city or empty>\",\n  \"billing_state\": \"<state/province or empty>\",\n  \"billing_country\": \"<country or empty>\",\n  \"funding_stage\": \"<Pre-Seed | Seed | Series A | Series B | Series C | Series D+ | Growth Equity | PE Buyout | Debt | Other | Unknown>\",\n  \"funding_amount\": \"<e.g. $12M | Undisclosed | Unknown>\",\n  \"funding_date\": \"<YYYY-MM-DD or YYYY-MM if day unknown>\",\n  \"investors\": \"<comma-separated investor names, or empty>\",\n  \"crunchbase_url\": \"<https://www.crunchbase.com/organization/[slug] or empty>\"\n}\n\nRules:\n- Only include companies you can corroborate via search — do NOT fabricate\n- Prefer 15–40 high-confidence matches over a long speculative list\n- If employee_count is a range, use the midpoint as an integer string\n- website should be the company homepage when known\n- If nothing qualifies, return []`;\n\nconst _claudeBody = {\n  model: MODEL,\n  max_tokens: 8000,\n  tools: [{ type: \"web_search_20250305\", name: \"web_search\" }],\n  messages: [{ role: \"user\", content: prompt }],\n};\n\nreturn [{\n  json: {\n    _startDate: startDate,\n    _endDate: endDate,\n    _claudeBody,\n  },\n}];\n"
+      },
+      "id": "285d9144-1e5f-4fa5-b2ad-fdf0fdb5d35f",
+      "name": "Prepare Funding Discovery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2832,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Prepare Funding Discovery').item.json._claudeBody }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "6d82a6cb-0998-4791-98b1-ba390063188c",
+      "name": "Claude Funding Discovery",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2608,
+        96
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "89SoEYPbesTqn7ET",
+          "name": "Anthropic account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Parse Funding Discovery ───────────────────────────────────────────────\n// Parses Claude's JSON array into one n8n item per company, shaped for\n// Salesforce Account create + email digest.\n// Code node mode: \"Run Once for All Items\".\n\nfunction nodeJson(name) {\n  try { return $(name).first().json; } catch (e) { return null; }\n}\n\nfunction clean(v, def = \"\") {\n  return String(v != null ? v : def).trim();\n}\n\nfunction parseEmployeeCount(raw) {\n  const s = clean(raw);\n  if (!s || /^unknown$/i.test(s)) return null;\n  const range = s.match(/(\\d+)\\s*[-–]\\s*(\\d+)/);\n  if (range) return Math.round((Number(range[1]) + Number(range[2])) / 2);\n  const n = s.replace(/,/g, \"\").match(/\\d+/);\n  return n ? Number(n[0]) : null;\n}\n\nfunction buildDescription(d) {\n  const lines = [];\n  const desc = clean(d.company_description);\n  if (desc) lines.push(desc);\n  lines.push(\"\");\n  lines.push(`Funding: ${clean(d.funding_stage, \"Unknown\")} | ${clean(d.funding_amount, \"Unknown\")} | ${clean(d.funding_date, \"Unknown\")}`);\n  const investors = clean(d.investors);\n  if (investors) lines.push(`Investors: ${investors}`);\n  const cb = clean(d.crunchbase_url);\n  if (cb) lines.push(`Crunchbase: ${cb}`);\n  const team = clean(d.employee_count);\n  if (team) lines.push(`Team size: ${team}`);\n  lines.push(\"Source: Weekly Crunchbase funding discovery (n8n)\");\n  return lines.join(\"\\n\").trim();\n}\n\nconst meta = nodeJson(\"Prepare Funding Discovery\") || {};\nconst startDate = meta._startDate || \"\";\nconst endDate = meta._endDate || \"\";\n\nlet companies = [];\nlet parseError = \"\";\n\ntry {\n  const resp = nodeJson(\"Claude Funding Discovery\");\n  if (!resp) {\n    parseError = \"No response from Claude Funding Discovery\";\n  } else if (resp.error) {\n    parseError = String(resp.error.message || resp.error).slice(0, 300);\n  } else if (Array.isArray(resp.content)) {\n    const text = resp.content\n      .filter((b) => b && b.type === \"text\" && b.text)\n      .map((b) => b.text)\n      .join(\" \");\n    const m = text.match(/\\[[\\s\\S]*\\]/);\n    if (!m) throw new Error(\"No JSON array in Claude response\");\n    const parsed = JSON.parse(m[0]);\n    if (!Array.isArray(parsed)) throw new Error(\"Parsed JSON is not an array\");\n    companies = parsed;\n  } else {\n    parseError = \"Unexpected Claude response shape\";\n  }\n} catch (e) {\n  parseError = String(e.message || e).slice(0, 300);\n}\n\nif (!companies.length) {\n  return [{\n    json: {\n      _empty: true,\n      _parseError: parseError,\n      _startDate: startDate,\n      _endDate: endDate,\n      company_name: \"\",\n      Name: \"\",\n      Website: \"\",\n      Description: \"\",\n      Industry: \"\",\n      NumberOfEmployees: null,\n      BillingCity: \"\",\n      BillingState: \"\",\n      BillingCountry: \"\",\n      funding_stage: \"\",\n      funding_amount: \"\",\n      funding_date: \"\",\n      investors: \"\",\n      crunchbase_url: \"\",\n      employee_count: \"\",\n    },\n  }];\n}\n\nreturn companies.map((d) => {\n  const name = clean(d.company_name);\n  const website = clean(d.website);\n  const employees = parseEmployeeCount(d.employee_count);\n  return {\n    json: {\n      _empty: false,\n      _parseError: \"\",\n      _startDate: startDate,\n      _endDate: endDate,\n      company_name: name,\n      Name: name,\n      Website: website,\n      Description: buildDescription(d),\n      Industry: clean(d.industry, \"Software\"),\n      NumberOfEmployees: employees,\n      BillingCity: clean(d.billing_city),\n      BillingState: clean(d.billing_state),\n      BillingCountry: clean(d.billing_country),\n      funding_stage: clean(d.funding_stage),\n      funding_amount: clean(d.funding_amount),\n      funding_date: clean(d.funding_date),\n      investors: clean(d.investors),\n      crunchbase_url: clean(d.crunchbase_url),\n      employee_count: clean(d.employee_count),\n      company_description: clean(d.company_description),\n    },\n  };\n});\n"
+      },
+      "id": "c5ba5415-6bc6-41a3-9e96-d65e3bf8ec1c",
+      "name": "Parse Funding Companies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2400,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Dedupe vs Salesforce ──────────────────────────────────────────────────\n// Marks each discovered company as new or existing using Account Name OR\n// Website domain (normalized). Code node mode: \"Run Once for All Items\".\n\nfunction normalizeName(n) {\n  return String(n || \"\")\n    .toLowerCase()\n    .replace(/&/g, \"and\")\n    .replace(/[^a-z0-9]/g, \"\");\n}\n\nfunction normalizeDomain(url) {\n  let s = String(url || \"\").trim().toLowerCase();\n  if (!s) return \"\";\n  s = s.replace(/^https?:\\/\\//, \"\").replace(/^www\\./, \"\");\n  return s.split(\"/\")[0].split(\"?\")[0];\n}\n\nfunction sfAccounts() {\n  try {\n    // Only real Account rows. onError: continueRegularOutput can emit a single\n    // error item on a failed fetch; counting/matching it would let the empty-SF\n    // guard pass and mark every company new. Require truthy Id and no error key.\n    return $(\"Get Salesforce Accounts\")\n      .all()\n      .map((i) => i.json)\n      .filter((j) => j && !j.error && Boolean(j.Id || j.id));\n  } catch (e) {\n    return [];\n  }\n}\n\nconst accounts = sfAccounts();\nconst items = $input.all();\n\nreturn items.map((item) => {\n  const c = item.json;\n  if (c._empty || !c.Name) {\n    return {\n      json: {\n        ...c,\n        _isNew: false,\n        _skipCreate: true,\n        _matchReason: \"empty\",\n        _sfAccountCount: accounts.length,\n      },\n    };\n  }\n\n  const name = normalizeName(c.Name);\n  const domain = normalizeDomain(c.Website);\n\n  let matchReason = \"\";\n  let matchedId = \"\";\n\n  for (const sf of accounts) {\n    const sfName = normalizeName(sf.Name);\n    const sfDomain = normalizeDomain(sf.Website);\n    const nameMatch = Boolean(name && sfName && name === sfName);\n    const domainMatch = Boolean(domain && sfDomain && domain === sfDomain);\n    if (nameMatch || domainMatch) {\n      matchReason = nameMatch && domainMatch\n        ? \"name+website\"\n        : nameMatch\n          ? \"name\"\n          : \"website\";\n      matchedId = sf.Id || sf.id || \"\";\n      break;\n    }\n  }\n\n  const isNew = !matchReason;\n  return {\n    json: {\n      ...c,\n      _isNew: isNew,\n      _skipCreate: !isNew,\n      _matchReason: matchReason || \"none\",\n      _matchedAccountId: matchedId,\n      _sfAccountCount: accounts.length,\n    },\n  };\n});\n"
+      },
+      "id": "f03b903a-df91-474e-8c68-02ac3cddd130",
+      "name": "Dedupe vs Salesforce",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-new",
+              "leftValue": "={{ $json._isNew }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-sf-guard",
+              "leftValue": "={{ $json._sfAccountCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8717b93b-abc6-4c68-8be6-8455367003ba",
+      "name": "Only New Accounts",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        -1952,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "account",
+        "name": "={{ $json.Name }}",
+        "additionalFields": {
+          "description": "={{ $json.Description }}",
+          "industry": "={{ $json.Industry }}",
+          "numberOfEmployees": "={{ $json.NumberOfEmployees }}",
+          "website": "={{ $json.Website }}"
+        }
+      },
+      "id": "56fc32e3-218b-48d5-873a-68d5a077c7b8",
+      "name": "Create Salesforce Account",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        -1728,
+        -32
+      ],
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "bypi7DAgDNwp2IZi",
+          "name": "Salesforce account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Build Funding Digest (CSV rows) ───────────────────────────────────────\n// Emits one clean row per discovered company for Convert to File.\n// Email subject/body are assembled later in Finalize Email (keeps CSV clean).\n// Code node mode: \"Run Once for All Items\".\n\nconst all = $input.all().map((i) => i.json);\nconst companies = all.filter((c) => !c._empty && c.Name);\n\nif (!companies.length) {\n  return [{\n    json: {\n      company_name: \"\",\n      website: \"\",\n      industry: \"\",\n      employee_count: \"\",\n      billing_city: \"\",\n      billing_state: \"\",\n      billing_country: \"\",\n      funding_stage: \"\",\n      funding_amount: \"\",\n      funding_date: \"\",\n      investors: \"\",\n      crunchbase_url: \"\",\n      company_description: \"\",\n      salesforce_status: \"none\",\n      match_reason: \"\",\n    },\n  }];\n}\n\nconst guardTripped = (companies[0] && companies[0]._sfAccountCount === 0);\n\nreturn companies.map((c) => ({\n  json: {\n    company_name: c.Name,\n    website: c.Website,\n    industry: c.Industry,\n    employee_count: c.employee_count || c.NumberOfEmployees || \"\",\n    billing_city: c.BillingCity,\n    billing_state: c.BillingState,\n    billing_country: c.BillingCountry,\n    funding_stage: c.funding_stage,\n    funding_amount: c.funding_amount,\n    funding_date: c.funding_date,\n    investors: c.investors,\n    crunchbase_url: c.crunchbase_url,\n    company_description: c.company_description || \"\",\n    salesforce_status: guardTripped ? \"skipped (SF fetch empty)\" : (c._isNew ? \"new\" : \"existing\"),\n    match_reason: c._matchReason || \"\",\n  },\n}));\n"
+      },
+      "id": "51e41a73-9f7e-4627-a78d-db17946e524d",
+      "name": "Build Funding Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1952,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "weekly_funding_digest.csv"
+        }
+      },
+      "id": "a55955a3-de9e-48b0-b14b-621a8a2a89a8",
+      "name": "Convert Digest to CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1728,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Finalize Email ────────────────────────────────────────────────────────\n// Runs after Convert to File. Keeps the CSV binary and sets the email\n// subject/body based on the run outcome:\n//   - soft failure (Claude/parse errored but flow continued) -> ⚠️ notice\n//   - SF guard tripped (0 accounts fetched) -> ⚠️ digest, creation SKIPPED\n//   - companies found -> ✅ digest (CSV attached)\n//   - no companies    -> ✅ \"no matches\"\n// Code node mode: \"Run Once for All Items\".\n\nlet deduped = [];\ntry {\n  deduped = $(\"Dedupe vs Salesforce\").all().map((i) => i.json);\n} catch (e) {\n  deduped = [];\n}\n\nconst companies = deduped.filter((c) => !c._empty && c.Name);\nconst startDate = (companies[0] && companies[0]._startDate) || (deduped[0] && deduped[0]._startDate) || \"\";\nconst endDate = (companies[0] && companies[0]._endDate) || (deduped[0] && deduped[0]._endDate) || \"\";\nconst parseError = (deduped[0] && deduped[0]._parseError) || \"\";\nconst sfAccountCount = (deduped[0] && Number(deduped[0]._sfAccountCount)) || 0;\nconst guardTripped = !parseError && companies.length > 0 && sfAccountCount === 0;\nconst newOnes = companies.filter((c) => c._isNew);\nconst existing = companies.filter((c) => !c._isNew);\n\nlet subject;\nlet body;\n\nif (parseError) {\n  subject = `⚠️ Weekly funding discovery FAILED — ${startDate}–${endDate}`;\n  body = [\n    \"Hi Sales team,\",\n    \"\",\n    \"The weekly funding discovery run hit an error and could not produce results.\",\n    \"\",\n    `  • Window: ${startDate} → ${endDate}`,\n    `  • Error:  ${parseError}`,\n    \"\",\n    \"No action needed — this is a heads-up that this week's file may be delayed.\",\n    \"\",\n    \"— Automations (n8n)\",\n  ].join(\"\\n\");\n} else if (guardTripped) {\n  subject = `⚠️ Weekly funding digest ${startDate}–${endDate} · ${companies.length} companies · Salesforce creation SKIPPED`;\n  const lines = [];\n  lines.push(\"Hi Sales team,\");\n  lines.push(\"\");\n  lines.push(`Weekly software/tech funding digest (${startDate} → ${endDate}).`);\n  lines.push(\"\");\n  lines.push(\"⚠️ SAFETY GUARD TRIPPED: the Salesforce account list came back EMPTY (0 accounts).\");\n  lines.push(\"To avoid mass-creating duplicates, NO accounts were created in Salesforce this run.\");\n  lines.push(\"Please check the Salesforce connection / permissions, then re-run if needed.\");\n  lines.push(\"\");\n  lines.push(`  • Total found: ${companies.length}`);\n  lines.push(\"  • Created in Salesforce: 0 (creation skipped by guard)\");\n  lines.push(\"\");\n  lines.push(\"── All companies ──\");\n  for (const c of companies) {\n    lines.push(`- ${c.Name} | ${c.funding_stage || \"?\"} ${c.funding_amount || \"\"} | ${c.Website || \"no website\"}`);\n  }\n  lines.push(\"\");\n  lines.push(\"Full list with funding details is attached as CSV.\");\n  lines.push(\"\");\n  lines.push(\"— Automations (n8n)\");\n  body = lines.join(\"\\n\");\n} else if (companies.length) {\n  subject = `✅ Weekly funding digest ${startDate}–${endDate} · ${companies.length} companies (${newOnes.length} new)`;\n  const lines = [];\n  lines.push(\"Hi Sales team,\");\n  lines.push(\"\");\n  lines.push(`Weekly software/tech funding digest (${startDate} → ${endDate}).`);\n  lines.push(\"\");\n  lines.push(`  • Total found: ${companies.length}`);\n  lines.push(`  • New (created in Salesforce): ${newOnes.length}`);\n  lines.push(`  • Already in Salesforce: ${existing.length}`);\n  lines.push(\"\");\n  lines.push(\"── All companies ──\");\n  for (const c of companies) {\n    const flag = c._isNew ? \"NEW\" : \"EXISTS\";\n    lines.push(`- [${flag}] ${c.Name} | ${c.funding_stage || \"?\"} ${c.funding_amount || \"\"} | ${c.Website || \"no website\"}`);\n  }\n  lines.push(\"\");\n  lines.push(\"Full list with funding + Salesforce match status is attached as CSV.\");\n  lines.push(\"\");\n  lines.push(\"— Automations (n8n)\");\n  body = lines.join(\"\\n\");\n} else {\n  subject = `✅ Weekly funding digest ${startDate}–${endDate} · no new matches`;\n  body = [\n    \"Hi Sales team,\",\n    \"\",\n    `No software/tech funding companies were found for ${startDate} → ${endDate}.`,\n    \"\",\n    \"— Automations (n8n)\",\n  ].join(\"\\n\");\n}\n\nconst input = $input.first();\nconst hasAttachment = Boolean(input.binary && input.binary.data);\n\nreturn [{\n  json: {\n    subject,\n    body,\n    hasAttachment,\n    outcome: parseError ? \"failure\" : (guardTripped ? \"guard_skipped\" : \"success\"),\n    startDate,\n    endDate,\n    companyCount: companies.length,\n    newCount: guardTripped ? 0 : newOnes.length,\n  },\n  binary: input.binary || {},\n}];\n"
+      },
+      "id": "0cb7b69a-8ba4-410b-ac3e-feebbe576a02",
+      "name": "Finalize Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n.sales@assuresoft.com.bo",
+        "toEmail": "sales@assuresoft.com",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {
+          "attachments": "={{ $json.hasAttachment ? 'data' : '' }}"
+        }
+      },
+      "id": "cd36a09d-6153-49ed-ae32-15c22d3ee6ed",
+      "name": "Send an Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -1344,
+        208
+      ],
+      "webhookId": "bdeac2ef-ea5e-42c7-8383-8ed10abff7b3",
+      "credentials": {
+        "smtp": {
+          "id": "yjdTjepkqEgUcibR",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "99aa2003-3325-4ffc-a912-61970b1857cc",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1728,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Build Failure Email ───────────────────────────────────────────────────\n// Fires only when the workflow HARD-fails, via the Error Trigger. Produces the\n// failure subject/body for the shared Send Email node. No attachment.\n// Code node mode: \"Run Once for All Items\".\n\nconst info = ($input.first() && $input.first().json) || {};\nconst wf = (info.workflow && info.workflow.name) || \"Weekly Funding Discovery\";\nconst exec = info.execution || {};\nconst errMsg = (exec.error && (exec.error.message || exec.error)) || \"Unknown error\";\nconst lastNode = exec.lastNodeExecuted || \"unknown node\";\nconst url = exec.url || \"\";\n\nconst subject = `⚠️ Weekly funding discovery FAILED — ${wf}`;\n\nconst parts = [\n  \"Hi Sales team,\",\n  \"\",\n  \"The weekly funding discovery run did NOT complete. No results were produced this run.\",\n  \"\",\n  `  • Workflow:  ${wf}`,\n  `  • Failed at: ${lastNode}`,\n  `  • Error:     ${String(errMsg).slice(0, 300)}`,\n];\nif (url) parts.push(`  • Execution: ${url}`);\nparts.push(\"\");\nparts.push(\"No action needed from Sales — this is a heads-up that this week's file may be delayed.\");\nparts.push(\"\");\nparts.push(\"— Automations (n8n)\");\n\nreturn [{ json: { subject, body: parts.join(\"\\n\"), hasAttachment: false, outcome: \"failure\" } }];\n"
+      },
+      "id": "b41c02b3-1b98-43c4-9ca9-a04bbba30944",
+      "name": "Build Failure Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        448
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Salesforce Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Salesforce Accounts": {
+      "main": [
+        [
+          {
+            "node": "Collect SF Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect SF Accounts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Funding Discovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Funding Discovery": {
+      "main": [
+        [
+          {
+            "node": "Claude Funding Discovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Funding Discovery": {
+      "main": [
+        [
+          {
+            "node": "Parse Funding Companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Funding Companies": {
+      "main": [
+        [
+          {
+            "node": "Dedupe vs Salesforce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe vs Salesforce": {
+      "main": [
+        [
+          {
+            "node": "Only New Accounts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Funding Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only New Accounts": {
+      "main": [
+        [
+          {
+            "node": "Create Salesforce Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Funding Digest": {
+      "main": [
+        [
+          {
+            "node": "Convert Digest to CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Digest to CSV": {
+      "main": [
+        [
+          {
+            "node": "Finalize Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Email": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Failure Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Email": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "f24233cc-75c9-4c21-a850-965977df3358",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "55bbbf90597dd21dd91462e66f2e7f746b83e0cc02757df3ada262fffeec62d2"
+  },
+  "nodeGroups": [],
+  "id": "FzjYLMZ43XDb7zPP",
+  "tags": []
+}

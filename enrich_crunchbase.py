@@ -9,14 +9,14 @@ Uses Claude + web search to pull Crunchbase-style data for each company:
   - HQ confirmation
 
 Also builds a separate investor intelligence file:
-  - YPO_Investors.csv  — ranked list of PE/VC firms with all their portfolio
+  - data/YPO_Investors.csv — ranked list of PE/VC firms with all their portfolio
                          companies from your list, for sales targeting
 
 Usage:
     python3 enrich_crunchbase.py
 
-    python3 enrich_crunchbase.py --input  YPO_Scored.csv      # or YPO_Enriched.csv
-    python3 enrich_crunchbase.py --output YPO_Final.csv
+    python3 enrich_crunchbase.py --input  data/YPO_Scored.csv
+    python3 enrich_crunchbase.py --output data/YPO_Final.csv
     python3 enrich_crunchbase.py --limit  50
     python3 enrich_crunchbase.py --delay  1.5
     python3 enrich_crunchbase.py --reset-errors
@@ -42,9 +42,9 @@ except ImportError:
     pass
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-DEFAULT_INPUT    = "YPO_Scored.csv"
-DEFAULT_OUTPUT   = "YPO_Final.csv"
-INVESTORS_OUTPUT = "YPO_Investors.csv"
+DEFAULT_INPUT    = "data/YPO_Scored.csv"
+DEFAULT_OUTPUT   = "data/YPO_Final.csv"
+INVESTORS_OUTPUT = "data/YPO_Investors.csv"
 DELAY_SECONDS    = 1.5
 MODEL            = "claude-haiku-4-5-20251001"
 
