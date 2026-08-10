@@ -7,23 +7,26 @@
 // Eligibility gate: field PATCHes only run when _hiring_status === "done" AND
 // at least one confirmed signal exists (Yes/No hiring answer, open eng roles,
 // careers/LinkedIn URL, or hiring_score > 0). Failed/empty research never
-// writes Is_Hiring_Engineers__c (the skip proxy).
+// writes hiring fields.
 //
-// Custom fields (must exist on Account and be in Get Accounts SOQL):
+// Cohort comes from the Salesforce report (not SOQL / Skip Enriched). Current
+// Account values are aliased from report columns in Flatten Report.
 //
-//   Is_Hiring_Engineers__c ← is_hiring_engineers  (Yes/No/Unknown, text)
-//                            ALSO the skip proxy — once set, Skip Enriched /
-//                            SOQL exclude the Account from future runs.
-//   Hiring_Score__c        ← hiring_score         (Number, 0–5)
-//   LinkedIn__c            ← linkedin_jobs_url    (URL/text)
-//   Careers_Page__c        ← careers_page_url     (URL/text)
+// Custom fields written on Account:
+//
+//   Is_Hiring_Engineers__c      ← is_hiring_engineers  (Yes/No/Unknown, text)
+//   Hiring_Score__c             ← hiring_score         (Number, 0–5)
+//   LinkedIn__c                 ← linkedin_jobs_url    (URL/text)
+//   Careers_Page__c             ← careers_page_url     (URL/text)
+//   Open_Job_Openings__c        ← open_roles           (text — role titles)
+//   Open_Job_Openings_Count__c  ← open_roles_count     (Number)
 //
 // Description: enrichment blobs are NOT written. On an eligible run, any legacy
 // automation blocks ("Hiring engineers:…[Hiring|Auto-enriched …]") are stripped
 // so Description returns to human/company content only.
 //
-// Note: open role titles / urgency / confidence stay in the weekly email digest
-// only — no dedicated Salesforce fields for those in this org.
+// Note: urgency / confidence stay in the weekly email digest only — no dedicated
+// Salesforce fields for those in this org.
 // Code node mode: "Run Once for Each Item".
 
 const j = $input.item.json;
@@ -46,6 +49,7 @@ function setIfChanged(field, value) {
 const hiringStatus = str(j._hiring_status);
 const hiringError = str(j._hiring_error);
 const hiring = str(j.is_hiring_engineers) || "Unknown";
+const openRoles = str(j.open_roles);
 const rolesCount = parseInt(j.open_roles_count, 10) || 0;
 const score = parseInt(j.hiring_score, 10) || 0;
 const urgency = str(j.hiring_urgency);
@@ -88,6 +92,7 @@ if (!eligible) {
       is_hiring_engineers: hiring,
       hiring_score: score,
       hiring_urgency: urgency,
+      open_roles: openRoles,
       open_roles_count: rolesCount,
       hiring_source: hiringSource,
       data_confidence: confidence,
@@ -97,11 +102,13 @@ if (!eligible) {
   };
 }
 
-// ── Existing hiring-signal fields (Is_Hiring_Engineers__c = skip proxy) ───
+// ── Hiring-signal fields ──────────────────────────────────────────────────
 setIfChanged("Is_Hiring_Engineers__c", hiring);
 setIfChanged("Hiring_Score__c", score);
 setIfChanged("LinkedIn__c", linkedinUrl);
 setIfChanged("Careers_Page__c", careersUrl);
+setIfChanged("Open_Job_Openings__c", openRoles);
+setIfChanged("Open_Job_Openings_Count__c", rolesCount);
 
 // ── Description cleanup only (no new enrichment text) ─────────────────────
 const current = str(j.Description);
@@ -129,6 +136,7 @@ return {
     is_hiring_engineers: hiring,
     hiring_score: score,
     hiring_urgency: urgency,
+    open_roles: openRoles,
     open_roles_count: rolesCount,
     hiring_source: hiringSource,
     data_confidence: confidence,

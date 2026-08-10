@@ -37,7 +37,7 @@
       ],
       "parameters": {
         "resource": "search",
-        "query": "SELECT Id, Name, Website, BillingState, Description, NumberOfEmployees, Careers_Page__c, Crunchbase_URL__c, Hiring_Score__c, Investors__c, Is_Hiring_Engineers__c, Is_PE_Backed__c, Is_VC_Backed__c, Latest_Funding_Amount__c, Latest_Funding_Date__c, LinkedIn__c, crunchbase__Latest_Round_Date__c, crunchbase__Latest_Round_Funding_Type__c, crunchbase__Latest_Round_Money_Raised_in_USD__c, crunchbase__Number_of_Employees_Crunchbase__c, crunchbase__Number_of_Investors__c, crunchbase__Total_Funding_USD__c FROM Account WHERE Crunchbase_URL__c = null AND Investors__c = null AND crunchbase__Total_Funding_USD__c = null AND crunchbase__Latest_Round_Funding_Type__c = null AND Latest_Funding_Date__c = null ORDER BY LastModifiedDate ASC LIMIT 500"
+        "query": "SELECT Id, Name, Website, BillingState, Description, NumberOfEmployees, Careers_Page__c, Crunchbase_URL__c, Hiring_Score__c, Investors__c, Is_Hiring_Engineers__c, Is_PE_Backed__c, Is_VC_Backed__c, Latest_Funding_Amount__c, Latest_Funding_Date__c, LinkedIn__c, Open_Job_Openings__c, Open_Job_Openings_Count__c, crunchbase__Latest_Round_Date__c, crunchbase__Latest_Round_Funding_Type__c, crunchbase__Latest_Round_Money_Raised_in_USD__c, crunchbase__Number_of_Employees_Crunchbase__c, crunchbase__Number_of_Investors__c, crunchbase__Total_Funding_USD__c FROM Account WHERE Crunchbase_URL__c = null AND Investors__c = null AND crunchbase__Total_Funding_USD__c = null AND crunchbase__Latest_Round_Funding_Type__c = null AND Latest_Funding_Date__c = null ORDER BY LastModifiedDate ASC LIMIT 500"
       },
       "credentials": {
         "salesforceOAuth2Api": {

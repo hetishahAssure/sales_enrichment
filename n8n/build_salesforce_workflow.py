@@ -4,8 +4,9 @@
 The enrichment is split into two independent weekly workflows so each source
 can be run, capped, and billed separately:
 
-  hiring     — every Saturday 20:00: hiring signals → existing Account fields.
-               Skip proxy: Is_Hiring_Engineers__c already populated.
+  hiring     — every Saturday 20:00: hiring signals from a Salesforce Report
+               cohort → existing Account fields. No Skip Enriched / SOQL
+               “already researched” filter; the report defines who to enrich.
   crunchbase — every Sunday 20:00: funding research → existing Account /
                crunchbase__ fields. Skip proxy: any of Crunchbase_URL__c,
                Investors__c, crunchbase__Total_Funding_USD__c,
@@ -15,12 +16,15 @@ No dedicated *Enriched__c fields. Description is not used as an enrichment
 dump; eligible runs only strip legacy automation blocks from Description.
 
 Credentials to attach after import (both workflows):
-  - Get Accounts / Update Account -> Salesforce OAuth2 (`Salesforce account`)
+  - Get Report / Get Accounts / Update Account -> Salesforce OAuth2
   - Crunchbase Research / Claude  -> Anthropic API (`Anthropic account`)
   - JSearch / Theirstack / Apollo -> their Header Auth credentials
   - Send an Email (both)          -> SMTP (`SMTP account`)
   - Also set Workflow Settings → Error Workflow to this workflow so the
     Error Trigger fires on hard failures.
+
+Set SF_HIRING_REPORT_ID (00O…) before rebuild, or edit Get Report URL after
+import.
 
 Run:  python3 build_salesforce_workflow.py
 Out:  salesforce_hiring_enrichment.schedule.workflow.json
@@ -43,6 +47,7 @@ MERGE_CB_JS = read("merge_cb.js")
 MERGE_JS = read("merge.js")
 PREPARE_CB_JS = read("prepare_cb.js")
 PREPARE_SF_JS = read("prepare_sf.js")
+FLATTEN_REPORT_HIRING_JS = read("flatten_report_hiring.js")
 CB_SUMMARY_JS = read("cb_build_summary_email.js")
 CB_FAILURE_JS = read("cb_build_failure_email.js")
 HIRING_SUMMARY_JS = read("hiring_build_summary_email.js")
@@ -50,12 +55,11 @@ HIRING_FAILURE_JS = read("hiring_build_failure_email.js")
 
 CONTINUE = {"onError": "continueRegularOutput"}
 
-# Legacy Description markers — still skipped during migration so previously
-# Description-marked Accounts are not re-billed.
+# Legacy Description markers — still skipped on the Crunchbase path during
+# migration so previously Description-marked Accounts are not re-billed.
 CB_LEGACY_MARKERS = ["[Funding enriched"]
-HIRING_LEGACY_MARKERS = ["[Hiring enriched", "[Auto-enriched"]
 
-# Existing Account fields only (diff + SOQL). Keep in sync with map_*.js.
+# Existing Account fields only (diff + SOQL for Crunchbase). Keep in sync with map_*.js.
 CUSTOM_FIELDS = [
     "Careers_Page__c",
     "Crunchbase_URL__c",
@@ -67,6 +71,8 @@ CUSTOM_FIELDS = [
     "Latest_Funding_Amount__c",
     "Latest_Funding_Date__c",
     "LinkedIn__c",
+    "Open_Job_Openings__c",
+    "Open_Job_Openings_Count__c",
     "crunchbase__Latest_Round_Date__c",
     "crunchbase__Latest_Round_Funding_Type__c",
     "crunchbase__Latest_Round_Money_Raised_in_USD__c",
@@ -87,9 +93,6 @@ def build_soql(where_clause):
     )
 
 
-# Hiring: not yet researched if Is_Hiring_Engineers__c is blank.
-HIRING_SOQL = build_soql("Is_Hiring_Engineers__c = null")
-
 # Funding: not yet researched if none of the funding proxy fields are set.
 CB_SOQL = build_soql(
     "Crunchbase_URL__c = null "
@@ -101,10 +104,13 @@ CB_SOQL = build_soql(
 
 # Testing sandbox host (matches current n8n export). Switch to production My
 # Domain before go-live.
-SF_UPDATE_URL = (
-    "=https://assuresoft--testing.sandbox.my.salesforce.com/services/data/v59.0"
-    "/sobjects/Account/{{ $json.Id }}"
-)
+SF_HOST = "https://assuresoft--testing.sandbox.my.salesforce.com"
+SF_API = f"{SF_HOST}/services/data/v59.0"
+SF_UPDATE_URL = f"={SF_API}/sobjects/Account/{{{{ $json.Id }}}}"
+
+# Hiring cohort: tabular Accounts report (00O… from the report URL).
+# Override with env SF_HIRING_REPORT_ID or edit the Get Report node after import.
+SF_HIRING_REPORT_ID = os.environ.get("SF_HIRING_REPORT_ID", "00OXXXXXXXXXXXXXXX")
 
 EMAIL_FROM = "n8n.sales@assuresoft.com.bo"
 EMAIL_TO = "sales@assuresoft.com"
@@ -134,6 +140,16 @@ def get_accounts_node(prefix, soql):
     return node(f"{prefix}-get", "Get Accounts", "n8n-nodes-base.salesforce", 1, {
         "resource": "search",
         "query": soql,
+    })
+
+
+def get_report_node(prefix, report_id):
+    return node(f"{prefix}-get-report", "Get Report", "n8n-nodes-base.httpRequest", 4.2, {
+        "method": "GET",
+        "url": f"={SF_API}/analytics/reports/{report_id}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "salesforceOAuth2Api",
+        "options": {},
     })
 
 
@@ -249,8 +265,9 @@ def update_node(prefix):
 
 hiring_nodes = [
     schedule_node("hi", "Every Saturday 20:00", 6),
-    get_accounts_node("hi", HIRING_SOQL),
-    skip_enriched_node("hi", ["Is_Hiring_Engineers__c"], HIRING_LEGACY_MARKERS),
+    get_report_node("hi", SF_HIRING_REPORT_ID),
+    code_node("hi-flatten", "Flatten Report", FLATTEN_REPORT_HIRING_JS,
+              mode="runOnceForAllItems"),
     cap_node("hi"),
     code_node("hi-prep", "Prepare Requests", PREPARE_SF_JS),
     anthropic_node("hi-claude", "Claude Web Search",
@@ -302,7 +319,7 @@ hiring_nodes = [
               mode="runOnceForAllItems"),
 ]
 
-hiring_chain = ["Every Saturday 20:00", "Get Accounts", "Skip Enriched", "Cap Per Run",
+hiring_chain = ["Every Saturday 20:00", "Get Report", "Flatten Report", "Cap Per Run",
                 "Prepare Requests", "Claude Web Search", "JSearch", "Theirstack", "Apollo",
                 "Merge & Score", "Map to Salesforce", "Has Changes", "Update Account"]
 
@@ -411,6 +428,8 @@ def build(name, nodes, chain, out_name, extra_connections=None, layout_extra=Non
     }
     if "Get Accounts" in by_name:
         by_name["Get Accounts"]["credentials"] = sf_cred
+    if "Get Report" in by_name:
+        by_name["Get Report"]["credentials"] = sf_cred
     if "Update Account" in by_name:
         by_name["Update Account"]["credentials"] = sf_cred
     for anth_node in ("Crunchbase Research", "Claude Web Search"):

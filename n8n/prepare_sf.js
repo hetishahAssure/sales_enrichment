@@ -1,8 +1,8 @@
 // ── Prepare Requests (Salesforce) ─────────────────────────────────────────
-// Runs once per Account row pulled from Salesforce. Builds the request
-// bodies/queries for all four hiring sources so the HTTP nodes stay simple.
-// Reads standard Account fields (Name, Website, BillingState) with the CSV
-// header names as fallbacks so the node also works on uploaded test data.
+// Runs once per Account row (from Flatten Report aliases, or SOQL/CSV test
+// data). Builds the request bodies/queries for all four hiring sources so the
+// HTTP nodes stay simple. Reads Account API names (Name, Website, BillingState)
+// with report / CSV header fallbacks.
 // Code node mode: "Run Once for Each Item".
 
 const MODEL = "claude-haiku-4-5-20251001";

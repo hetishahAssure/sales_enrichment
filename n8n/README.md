@@ -43,7 +43,7 @@ builders load siblings via `HERE = dirname(__file__)`.
 | [`salesforce_crunchbase_enrichment.md`](salesforce_crunchbase_enrichment.md) | Crunchbase schedule docs |
 | `salesforce_hiring_enrichment.schedule.workflow.json` | Scheduled hiring enrichment |
 | `salesforce_crunchbase_enrichment.schedule.workflow.json` | Scheduled Crunchbase enrichment |
-| `prepare_sf.js` / `map_salesforce_hiring.js` / `map_salesforce_cb.js` | SF mapping Code nodes |
+| `prepare_sf.js` / `flatten_report_hiring.js` / `map_salesforce_hiring.js` / `map_salesforce_cb.js` | SF mapping Code nodes |
 | `build_salesforce_workflow.py` | Regenerates both Salesforce workflow JSONs |
 
 ### Weekly funding discovery
